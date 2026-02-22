@@ -131,3 +131,60 @@ def test_compare_invalid_rank_by_fails() -> None:
     result = runner.invoke(app, ["compare", "hello", "--rank-by", "speed"])
     assert result.exit_code == 2
     assert "--rank-by must be one of: none, latency, cost" in result.output
+
+
+def test_compare_continue_on_error_keeps_success(monkeypatch) -> None:
+    async def fake_embed_texts(
+        self,
+        texts,
+        provider_name,
+        model=None,
+        dimensions=None,
+        use_cache=True,
+    ):
+        _ = (texts, model, dimensions, use_cache)
+        if provider_name == "openai":
+            raise RuntimeError("boom")
+        return [
+            EmbeddingResult(
+                text="x",
+                vector=[0.0, 1.0],
+                provider=provider_name,
+                model="mock",
+                cached=False,
+            )
+        ]
+
+    monkeypatch.setattr("embx.cli.EmbeddingEngine.embed_texts", fake_embed_texts)
+
+    result = runner.invoke(
+        app,
+        ["compare", "hello", "--providers", "openai,voyage", "--format", "json"],
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    statuses = {item["provider"]: item["status"] for item in payload}
+    assert statuses["openai"] == "error"
+    assert statuses["voyage"] == "ok"
+
+
+def test_compare_fail_fast_stops_on_error(monkeypatch) -> None:
+    async def fake_embed_texts(
+        self,
+        texts,
+        provider_name,
+        model=None,
+        dimensions=None,
+        use_cache=True,
+    ):
+        _ = (texts, provider_name, model, dimensions, use_cache)
+        raise RuntimeError("forced")
+
+    monkeypatch.setattr("embx.cli.EmbeddingEngine.embed_texts", fake_embed_texts)
+
+    result = runner.invoke(
+        app,
+        ["compare", "hello", "--providers", "openai,voyage", "--fail-fast"],
+    )
+    assert result.exit_code == 2
+    assert "failed" in result.output

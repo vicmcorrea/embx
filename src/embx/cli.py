@@ -102,6 +102,54 @@ def _parse_provider_list(raw: str | None) -> list[str]:
     return deduped
 
 
+async def _compare_provider(
+    *,
+    engine: EmbeddingEngine,
+    input_text: str,
+    provider_name: str,
+    model: str | None,
+    dimensions: int | None,
+    use_cache: bool,
+) -> dict[str, Any]:
+    started = time.perf_counter()
+    try:
+        results = await engine.embed_texts(
+            texts=[input_text],
+            provider_name=provider_name,
+            model=model,
+            dimensions=dimensions,
+            use_cache=use_cache,
+        )
+        result = results[0]
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        return {
+            "provider": provider_name,
+            "status": "ok",
+            "model": result.model,
+            "dimensions": len(result.vector),
+            "cached": result.cached,
+            "latency_ms": round(elapsed_ms, 3),
+            "cost_usd": result.cost_usd,
+            "input_tokens": result.input_tokens,
+            "vector_preview": _safe_vector_preview(result.vector, size=6),
+            "error": None,
+        }
+    except (ValidationError, ConfigurationError, ProviderError, Exception) as exc:
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        return {
+            "provider": provider_name,
+            "status": "error",
+            "model": model,
+            "dimensions": None,
+            "cached": False,
+            "latency_ms": round(elapsed_ms, 3),
+            "cost_usd": None,
+            "input_tokens": None,
+            "vector_preview": None,
+            "error": str(exc),
+        }
+
+
 @app.command("providers")
 def providers(
     json_output: bool = typer.Option(False, "--json", help="Print as JSON"),
@@ -312,56 +360,42 @@ def compare(
     except ConfigurationError as exc:
         _fail(str(exc), code=2)
 
-    rows: list[dict[str, Any]] = []
-    success_count = 0
+    rows: list[dict[str, Any]]
+    if continue_on_error:
 
-    for provider_name in provider_names:
-        started = time.perf_counter()
-        try:
-            results = asyncio.run(
-                engine.embed_texts(
-                    texts=[input_text],
+        async def _run_parallel() -> list[dict[str, Any]]:
+            tasks = [
+                _compare_provider(
+                    engine=engine,
+                    input_text=input_text,
+                    provider_name=provider_name,
+                    model=model,
+                    dimensions=dimensions,
+                    use_cache=not no_cache,
+                )
+                for provider_name in provider_names
+            ]
+            return await asyncio.gather(*tasks)
+
+        rows = asyncio.run(_run_parallel())
+    else:
+        rows = []
+        for provider_name in provider_names:
+            row = asyncio.run(
+                _compare_provider(
+                    engine=engine,
+                    input_text=input_text,
                     provider_name=provider_name,
                     model=model,
                     dimensions=dimensions,
                     use_cache=not no_cache,
                 )
             )
-            result = results[0]
-            elapsed_ms = (time.perf_counter() - started) * 1000
-            rows.append(
-                {
-                    "provider": provider_name,
-                    "status": "ok",
-                    "model": result.model,
-                    "dimensions": len(result.vector),
-                    "cached": result.cached,
-                    "latency_ms": round(elapsed_ms, 3),
-                    "cost_usd": result.cost_usd,
-                    "input_tokens": result.input_tokens,
-                    "vector_preview": _safe_vector_preview(result.vector, size=6),
-                    "error": None,
-                }
-            )
-            success_count += 1
-        except (ValidationError, ConfigurationError, ProviderError) as exc:
-            elapsed_ms = (time.perf_counter() - started) * 1000
-            rows.append(
-                {
-                    "provider": provider_name,
-                    "status": "error",
-                    "model": model,
-                    "dimensions": None,
-                    "cached": False,
-                    "latency_ms": round(elapsed_ms, 3),
-                    "cost_usd": None,
-                    "input_tokens": None,
-                    "vector_preview": None,
-                    "error": str(exc),
-                }
-            )
-            if not continue_on_error:
-                _fail(f"Provider '{provider_name}' failed: {exc}", code=2)
+            rows.append(row)
+            if row["status"] == "error":
+                _fail(f"Provider '{provider_name}' failed: {row['error']}", code=2)
+
+    success_count = sum(1 for row in rows if row["status"] == "ok")
 
     successful_rows = [row for row in rows if row["status"] == "ok"]
     error_rows = [row for row in rows if row["status"] != "ok"]
