@@ -4,7 +4,7 @@
 
 ## Why this exists
 
-- Use one command surface across OpenAI, Voyage, and Ollama.
+- Use one command surface across OpenAI, OpenRouter, Voyage, and Ollama.
 - Keep output script-friendly (`json`, `jsonl`) but readable by default.
 - Add cache and config layering so provider switching is painless.
 
@@ -40,7 +40,7 @@ embx embed "semantic search" --format csv
 embx batch inputs.txt --format jsonl --output outputs.jsonl
 
 # Compare providers for the same input
-embx compare "semantic retrieval" --providers openai,voyage,ollama
+embx compare "semantic retrieval" --providers openai,openrouter,voyage,ollama
 
 # Compare in machine-readable mode
 embx compare "semantic retrieval" --format json --output compare.json
@@ -60,6 +60,12 @@ embx compare "semantic retrieval" --providers openai,voyage,ollama --only-config
 
 # Show top 2 ranked providers and hide failed rows
 embx compare "semantic retrieval" --rank-by quality --top 2 --hide-errors
+
+# Markdown table output
+embx compare "semantic retrieval" --format md
+
+# Retries with backoff for transient provider failures
+embx embed "semantic retrieval" --provider openrouter --retries 2 --retry-backoff 0.2
 ```
 
 ## Config precedence

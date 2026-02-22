@@ -20,6 +20,7 @@ def test_providers_json() -> None:
     result = runner.invoke(app, ["providers", "--json"])
     assert result.exit_code == 0
     assert "openai" in result.stdout
+    assert "openrouter" in result.stdout
     assert "ollama" in result.stdout
 
 
