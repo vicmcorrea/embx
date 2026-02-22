@@ -19,10 +19,13 @@ def test_version() -> None:
 def test_providers_json() -> None:
     result = runner.invoke(app, ["providers", "--json"])
     assert result.exit_code == 0
-    assert "openai" in result.stdout
-    assert "openrouter" in result.stdout
-    assert "huggingface" in result.stdout
-    assert "ollama" in result.stdout
+    payload = json.loads(result.stdout)
+    row_map = {row["name"]: row for row in payload}
+    assert "openai" in row_map
+    assert "openrouter" in row_map
+    assert "huggingface" in row_map
+    assert "ollama" in row_map
+    assert row_map["openrouter"]["default_model"] == "qwen/qwen3-embedding-8b"
 
 
 def test_embed_without_input_fails() -> None:
@@ -93,6 +96,51 @@ def test_connect_openrouter_flags() -> None:
         assert data["openrouter_referer"] == "https://example.com"
         assert data["openrouter_title"] == "embx-app"
         assert data["default_provider"] == "openrouter"
+
+
+def test_connect_huggingface_model_source_local_non_interactive() -> None:
+    with runner.isolated_filesystem():
+        config_path = Path("embx.connect.hf.config.json")
+        env = {"EMBX_CONFIG_PATH": str(config_path)}
+
+        result = runner.invoke(
+            app,
+            [
+                "connect",
+                "--provider",
+                "huggingface",
+                "--api-key",
+                "hf-token",
+                "--model-source",
+                "local",
+                "--non-interactive",
+            ],
+            env=env,
+        )
+        assert result.exit_code == 0
+        assert "HuggingFace local models are supported" in result.stdout
+
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        assert data["huggingface_api_key"] == "hf-token"
+        assert data["huggingface_model_source"] == "local"
+
+
+def test_connect_model_source_requires_huggingface_provider() -> None:
+    result = runner.invoke(
+        app,
+        [
+            "connect",
+            "--provider",
+            "openai",
+            "--api-key",
+            "sk-openai",
+            "--model-source",
+            "local",
+            "--non-interactive",
+        ],
+    )
+    assert result.exit_code == 2
+    assert "--model-source can only be used with --provider huggingface" in result.output
 
 
 def test_connect_all_wizard_multiple_providers() -> None:
@@ -167,6 +215,325 @@ def test_connect_test_flag_failure(monkeypatch) -> None:
         assert "Connectivity test failed" in result.output
 
 
+def test_quickstart_non_interactive_connect_and_embed(monkeypatch) -> None:
+    async def fake_list_embedding_models(
+        provider_name: str,
+        config: dict,
+        timeout_seconds: int,
+        source: str = "remote",
+    ):
+        _ = timeout_seconds
+        assert provider_name == "openrouter"
+        assert source == "remote"
+        assert config["openrouter_api_key"] == "sk-openrouter"
+        return [{"id": "model/a", "name": "A"}]
+
+    async def fake_embed_texts(
+        self,
+        texts,
+        provider_name,
+        model=None,
+        dimensions=None,
+        use_cache=True,
+    ):
+        _ = (self, dimensions, use_cache)
+        assert provider_name == "openrouter"
+        assert model == "model/a"
+        return [
+            EmbeddingResult(
+                text=texts[0],
+                vector=[0.1, 0.2],
+                provider=provider_name,
+                model=model or "model/a",
+                cached=False,
+            )
+        ]
+
+    monkeypatch.setattr(
+        "embx.providers.discovery.list_embedding_models", fake_list_embedding_models
+    )
+    monkeypatch.setattr("embx.engine.EmbeddingEngine.embed_texts", fake_embed_texts)
+
+    with runner.isolated_filesystem():
+        config_path = Path("embx.quickstart.config.json")
+        env = {"EMBX_CONFIG_PATH": str(config_path)}
+
+        result = runner.invoke(
+            app,
+            [
+                "quickstart",
+                "hello world",
+                "--provider",
+                "openrouter",
+                "--connect",
+                "--api-key",
+                "sk-openrouter",
+                "--non-interactive",
+                "--format",
+                "json",
+            ],
+            env=env,
+        )
+
+        assert result.exit_code == 0
+        payload = json.loads(result.stdout)
+        assert payload["provider"] == "openrouter"
+        assert payload["model"] == "model/a"
+
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        assert data["default_provider"] == "openrouter"
+        assert data["default_model"] == "model/a"
+
+
+def test_quickstart_non_interactive_unconfigured_provider_fails() -> None:
+    with runner.isolated_filesystem():
+        config_path = Path("embx.quickstart.config.json")
+        env = {"EMBX_CONFIG_PATH": str(config_path)}
+
+        result = runner.invoke(
+            app,
+            ["quickstart", "hello", "--provider", "openai", "--non-interactive"],
+            env=env,
+        )
+
+        assert result.exit_code == 2
+        assert "is not configured. Rerun with --connect" in result.output
+
+
+def test_quickstart_huggingface_uses_saved_model_source(monkeypatch) -> None:
+    async def fake_list_embedding_models(
+        provider_name: str,
+        config: dict,
+        timeout_seconds: int,
+        source: str = "remote",
+    ):
+        _ = (config, timeout_seconds)
+        assert provider_name == "huggingface"
+        assert source == "local"
+        return [{"id": "sentence-transformers/all-MiniLM-L6-v2", "source": "local"}]
+
+    async def fake_embed_texts(
+        self,
+        texts,
+        provider_name,
+        model=None,
+        dimensions=None,
+        use_cache=True,
+    ):
+        _ = (self, dimensions, use_cache)
+        return [
+            EmbeddingResult(
+                text=texts[0],
+                vector=[0.3, 0.4, 0.5],
+                provider=provider_name,
+                model=model or "sentence-transformers/all-MiniLM-L6-v2",
+                cached=False,
+            )
+        ]
+
+    monkeypatch.setattr(
+        "embx.providers.discovery.list_embedding_models", fake_list_embedding_models
+    )
+    monkeypatch.setattr("embx.engine.EmbeddingEngine.embed_texts", fake_embed_texts)
+
+    result = runner.invoke(
+        app,
+        [
+            "quickstart",
+            "hello",
+            "--provider",
+            "huggingface",
+            "--non-interactive",
+            "--format",
+            "json",
+        ],
+        env={
+            "EMBX_HUGGINGFACE_API_KEY": "hf-token",
+            "EMBX_HUGGINGFACE_MODEL_SOURCE": "local",
+        },
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["provider"] == "huggingface"
+    assert payload["model"] == "sentence-transformers/all-MiniLM-L6-v2"
+
+
+def test_quickstart_interactive_huggingface_pretty(monkeypatch) -> None:
+    async def fake_list_embedding_models(
+        provider_name: str,
+        config: dict,
+        timeout_seconds: int,
+        source: str = "remote",
+    ):
+        _ = (config, timeout_seconds)
+        assert provider_name == "huggingface"
+        assert source == "local"
+        return [{"id": "sentence-transformers/all-MiniLM-L6-v2", "source": "local"}]
+
+    async def fake_embed_texts(
+        self,
+        texts,
+        provider_name,
+        model=None,
+        dimensions=None,
+        use_cache=True,
+    ):
+        _ = (self, dimensions, use_cache)
+        return [
+            EmbeddingResult(
+                text=texts[0],
+                vector=[0.1, 0.2, 0.3],
+                provider=provider_name,
+                model=model or "sentence-transformers/all-MiniLM-L6-v2",
+                cached=False,
+                input_tokens=2,
+                cost_usd=0.000001,
+            )
+        ]
+
+    monkeypatch.setattr(
+        "embx.providers.discovery.list_embedding_models", fake_list_embedding_models
+    )
+    monkeypatch.setattr("embx.engine.EmbeddingEngine.embed_texts", fake_embed_texts)
+
+    result = runner.invoke(
+        app,
+        ["quickstart", "hello"],
+        input="1\nn\n2\n1\n",
+        env={"EMBX_HUGGINGFACE_API_KEY": "hf-token"},
+    )
+
+    assert result.exit_code == 0
+    assert "Quickstart embedding" in result.stdout
+    assert "vector_preview" in result.stdout
+
+
+def test_quickstart_source_local_for_non_hf_fails(monkeypatch) -> None:
+    async def fake_embed_texts(
+        self,
+        texts,
+        provider_name,
+        model=None,
+        dimensions=None,
+        use_cache=True,
+    ):
+        _ = (self, texts, provider_name, model, dimensions, use_cache)
+        return []
+
+    monkeypatch.setattr("embx.engine.EmbeddingEngine.embed_texts", fake_embed_texts)
+
+    result = runner.invoke(
+        app,
+        ["quickstart", "hello", "--provider", "openai", "--source", "local", "--non-interactive"],
+        env={"EMBX_OPENAI_API_KEY": "sk-openai"},
+    )
+
+    assert result.exit_code == 2
+    assert "supports source=remote only" in result.output
+
+
+def test_quickstart_discovery_failure_falls_back_to_default_model(monkeypatch) -> None:
+    from embx.exceptions import ProviderError
+
+    async def fake_list_embedding_models(
+        provider_name: str,
+        config: dict,
+        timeout_seconds: int,
+        source: str = "remote",
+    ):
+        _ = (provider_name, config, timeout_seconds, source)
+        raise ProviderError("discovery down")
+
+    async def fake_embed_texts(
+        self,
+        texts,
+        provider_name,
+        model=None,
+        dimensions=None,
+        use_cache=True,
+    ):
+        _ = (self, dimensions, use_cache)
+        return [
+            EmbeddingResult(
+                text=texts[0],
+                vector=[0.9, 0.8],
+                provider=provider_name,
+                model=model or "text-embedding-3-small",
+                cached=False,
+            )
+        ]
+
+    monkeypatch.setattr(
+        "embx.providers.discovery.list_embedding_models", fake_list_embedding_models
+    )
+    monkeypatch.setattr("embx.engine.EmbeddingEngine.embed_texts", fake_embed_texts)
+
+    result = runner.invoke(
+        app,
+        ["quickstart", "hello", "--provider", "openai"],
+        input="n\n",
+        env={"EMBX_OPENAI_API_KEY": "sk-openai"},
+    )
+
+    assert result.exit_code == 0
+    assert "Model discovery warning" in result.output
+    assert "Using provider default model: text-embedding-3-small" in result.output
+
+
+def test_quickstart_csv_output(monkeypatch) -> None:
+    async def fake_list_embedding_models(
+        provider_name: str,
+        config: dict,
+        timeout_seconds: int,
+        source: str = "remote",
+    ):
+        _ = (provider_name, config, timeout_seconds, source)
+        return [{"id": "model/a"}]
+
+    async def fake_embed_texts(
+        self,
+        texts,
+        provider_name,
+        model=None,
+        dimensions=None,
+        use_cache=True,
+    ):
+        _ = (self, dimensions, use_cache)
+        return [
+            EmbeddingResult(
+                text=texts[0],
+                vector=[0.4, 0.2],
+                provider=provider_name,
+                model=model or "model/a",
+                cached=False,
+            )
+        ]
+
+    monkeypatch.setattr(
+        "embx.providers.discovery.list_embedding_models", fake_list_embedding_models
+    )
+    monkeypatch.setattr("embx.engine.EmbeddingEngine.embed_texts", fake_embed_texts)
+
+    result = runner.invoke(
+        app,
+        [
+            "quickstart",
+            "hello",
+            "--provider",
+            "openrouter",
+            "--non-interactive",
+            "--format",
+            "csv",
+        ],
+        env={"EMBX_OPENROUTER_API_KEY": "sk-openrouter"},
+    )
+
+    assert result.exit_code == 0
+    assert "provider,model" in result.stdout
+    assert "openrouter,model/a" in result.stdout
+
+
 def test_models_json_output(monkeypatch) -> None:
     async def fake_list_embedding_models(
         provider_name: str,
@@ -185,6 +552,32 @@ def test_models_json_output(monkeypatch) -> None:
     result = runner.invoke(app, ["models", "--provider", "openrouter", "--format", "json"])
     assert result.exit_code == 0
     assert "openai/text-embedding-3-small" in result.stdout
+
+
+def test_models_huggingface_uses_configured_source(monkeypatch) -> None:
+    async def fake_list_embedding_models(
+        provider_name: str,
+        config: dict,
+        timeout_seconds: int,
+        source: str = "remote",
+    ):
+        _ = (config, timeout_seconds)
+        assert provider_name == "huggingface"
+        assert source == "local"
+        return [{"id": "sentence-transformers/all-MiniLM-L6-v2", "name": "all-MiniLM"}]
+
+    monkeypatch.setattr(
+        "embx.providers.discovery.list_embedding_models",
+        fake_list_embedding_models,
+    )
+
+    result = runner.invoke(
+        app,
+        ["models", "--provider", "huggingface", "--format", "json"],
+        env={"EMBX_HUGGINGFACE_MODEL_SOURCE": "local"},
+    )
+    assert result.exit_code == 0
+    assert "sentence-transformers/all-MiniLM-L6-v2" in result.stdout
 
 
 def test_models_interactive_huggingface_local(monkeypatch) -> None:
@@ -733,6 +1126,8 @@ def test_compare_only_configured_filters_missing_keys(monkeypatch) -> None:
         ],
         env={
             "EMBX_OPENAI_API_KEY": "",
+            "EMBX_OPENROUTER_API_KEY": "",
+            "EMBX_HUGGINGFACE_API_KEY": "",
             "EMBX_VOYAGE_API_KEY": "",
         },
     )
@@ -754,6 +1149,8 @@ def test_compare_only_configured_with_none_fails() -> None:
         ],
         env={
             "EMBX_OPENAI_API_KEY": "",
+            "EMBX_OPENROUTER_API_KEY": "",
+            "EMBX_HUGGINGFACE_API_KEY": "",
             "EMBX_VOYAGE_API_KEY": "",
         },
     )
@@ -873,6 +1270,8 @@ def test_doctor_only_configured_filters_results() -> None:
         ["doctor", "--json", "--only-configured"],
         env={
             "EMBX_OPENAI_API_KEY": "",
+            "EMBX_OPENROUTER_API_KEY": "",
+            "EMBX_HUGGINGFACE_API_KEY": "",
             "EMBX_VOYAGE_API_KEY": "",
         },
     )

@@ -28,14 +28,16 @@ def _select_provider_interactively(options: list[str]) -> str:
     return options[index - 1]
 
 
-def _select_source_interactively() -> str:
+def _select_source_interactively(default_source: str = "remote") -> str:
     typer.echo("Choose model source:")
     typer.echo("  1. remote")
     typer.echo("  2. local")
     typer.echo("  3. all")
-    raw = typer.prompt("Source number", default="1").strip()
+    default_map = {"remote": "1", "local": "2", "all": "3"}
+    default_choice = default_map.get(default_source, "1")
+    raw = typer.prompt("Source number", default=default_choice).strip().lower()
     mapping = {"1": "remote", "2": "local", "3": "all"}
-    selected = mapping.get(raw)
+    selected = mapping.get(raw) or (raw if raw in MODEL_SOURCES else None)
     if selected is None:
         fail("Source selection must be 1, 2, or 3.", code=2)
     return selected
@@ -188,8 +190,14 @@ def register_models_command(app: typer.Typer) -> None:
             fail(f"Unknown provider '{provider_name}'. Available: {', '.join(options)}", code=2)
 
         if source is None:
-            if provider_name == "huggingface" and interactive:
-                source_name = _select_source_interactively()
+            if provider_name == "huggingface":
+                configured_default_source = (
+                    str(cfg.get("huggingface_model_source", "remote")).strip().lower()
+                )
+                if interactive:
+                    source_name = _select_source_interactively(configured_default_source)
+                else:
+                    source_name = configured_default_source
             else:
                 source_name = "remote"
         else:

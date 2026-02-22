@@ -12,6 +12,7 @@
 - Add vector-db sink plugins (Chroma, Qdrant, Pinecone).
 - Add embeddings quality mini-benchmark command.
 - Add optional dimensionality projection output for quick visualization.
+- Add embedding visualization examples in a 2D plane/graph view so users can inspect how vectors cluster.
 
 ## Long-term (v1.0)
 

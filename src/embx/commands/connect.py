@@ -10,12 +10,36 @@ from embx.commands.shared import fail
 
 
 PROVIDER_ORDER = ["openai", "openrouter", "huggingface", "voyage", "ollama"]
+HF_MODEL_SOURCES = ("remote", "local", "all")
 PROVIDER_KEY_MAP = {
     "openai": "openai_api_key",
     "openrouter": "openrouter_api_key",
     "huggingface": "huggingface_api_key",
     "voyage": "voyage_api_key",
 }
+
+
+def _normalize_hf_model_source(raw: str) -> str:
+    source = raw.strip().lower()
+    if source not in HF_MODEL_SOURCES:
+        fail("HuggingFace model source must be one of: remote, local, all", code=2)
+    return source
+
+
+def _select_hf_model_source_interactively(default_source: str) -> str:
+    normalized_default = default_source if default_source in HF_MODEL_SOURCES else "remote"
+    mapping = {"1": "remote", "2": "local", "3": "all"}
+    default_choice = {"remote": "1", "local": "2", "all": "3"}[normalized_default]
+
+    typer.echo("HuggingFace model source preference:")
+    typer.echo("  1. remote (list models from HuggingFace API)")
+    typer.echo("  2. local (list models from local HuggingFace cache)")
+    typer.echo("  3. all (combine remote and local model listings)")
+
+    raw = typer.prompt("Source number", default=default_choice).strip().lower()
+    if raw in mapping:
+        return mapping[raw]
+    return _normalize_hf_model_source(raw)
 
 
 def _select_provider_interactively() -> str:
@@ -41,6 +65,7 @@ def _collect_provider_updates(
     api_key: str | None,
     base_url: str | None,
     cache_dir: str | None,
+    model_source: str | None,
     referer: str | None,
     title: str | None,
     non_interactive: bool,
@@ -78,6 +103,9 @@ def _collect_provider_updates(
             updates["openrouter_title"] = title
 
     if provider == "huggingface":
+        if not non_interactive:
+            typer.echo("HuggingFace supports remote API and local cached models.")
+
         if base_url is None and not non_interactive:
             default_base = str(
                 cfg.get("huggingface_base_url", "https://router.huggingface.co/hf-inference/models")
@@ -92,6 +120,14 @@ def _collect_provider_updates(
             ).strip()
         if cache_dir is not None:
             updates["huggingface_cache_dir"] = cache_dir
+
+        if model_source is None:
+            default_source = str(cfg.get("huggingface_model_source", "remote")).strip().lower()
+            if non_interactive:
+                model_source = default_source
+            else:
+                model_source = _select_hf_model_source_interactively(default_source)
+        updates["huggingface_model_source"] = _normalize_hf_model_source(model_source)
 
     if provider == "ollama":
         if base_url is None and not non_interactive:
@@ -140,6 +176,11 @@ def register_connect_command(app: typer.Typer) -> None:
             None,
             "--cache-dir",
             help="Cache directory for HuggingFace local model discovery.",
+        ),
+        model_source: str | None = typer.Option(
+            None,
+            "--model-source",
+            help="HuggingFace model source preference: remote, local, or all.",
         ),
         referer: str | None = typer.Option(
             None,
@@ -201,6 +242,7 @@ def register_connect_command(app: typer.Typer) -> None:
                     api_key=None,
                     base_url=None,
                     cache_dir=None,
+                    model_source=None,
                     referer=None,
                     title=None,
                     non_interactive=False,
@@ -220,6 +262,8 @@ def register_connect_command(app: typer.Typer) -> None:
             if provider not in PROVIDER_ORDER:
                 available = ", ".join(PROVIDER_ORDER)
                 fail(f"Unknown provider '{provider}'. Available: {available}", code=2)
+            if model_source is not None and provider != "huggingface":
+                fail("--model-source can only be used with --provider huggingface.", code=2)
 
             option_updates = _collect_provider_updates(
                 provider=provider,
@@ -227,6 +271,7 @@ def register_connect_command(app: typer.Typer) -> None:
                 api_key=api_key,
                 base_url=base_url,
                 cache_dir=cache_dir,
+                model_source=model_source,
                 referer=referer,
                 title=title,
                 non_interactive=non_interactive,
@@ -240,6 +285,13 @@ def register_connect_command(app: typer.Typer) -> None:
         path: Path = upsert_config(updates)
         typer.secho(f"Saved configuration to {path}", fg=typer.colors.GREEN)
         typer.echo(f"Providers configured: {', '.join(configured)}")
+        if "huggingface" in configured:
+            effective_hf_source = str(updates.get("huggingface_model_source", "remote"))
+            typer.echo(
+                "HuggingFace local models are supported. "
+                f"Current model source preference: {effective_hf_source}."
+            )
+            typer.echo("Try: embx models --provider huggingface --source local")
 
         if test:
             latest_cfg = resolve_config()

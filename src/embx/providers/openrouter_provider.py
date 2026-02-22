@@ -12,7 +12,7 @@ from embx.providers.base import EmbeddingProvider
 
 class OpenRouterProvider(EmbeddingProvider):
     name = "openrouter"
-    default_model = "openai/text-embedding-3-small"
+    default_model = "qwen/qwen3-embedding-8b"
     required_config_keys = ("openrouter_api_key",)
 
     async def embed(

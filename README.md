@@ -23,6 +23,12 @@ pip install -e ".[dev]"
 ## Quick start
 
 ```bash
+# One-command guided flow: connect, pick model, run embedding
+embx quickstart
+
+# One-command non-interactive flow
+embx quickstart "semantic retrieval" --provider openrouter --connect --api-key "$EMBX_OPENROUTER_API_KEY" --non-interactive --format json
+
 # Show providers
 embx providers
 
@@ -38,6 +44,9 @@ embx connect --provider openrouter --api-key "$EMBX_OPENROUTER_API_KEY" --non-in
 # Configure HuggingFace provider
 embx connect --provider huggingface --api-key "$EMBX_HUGGINGFACE_API_KEY" --non-interactive
 
+# Configure HuggingFace and default to local cached model discovery
+embx connect --provider huggingface --api-key "$EMBX_HUGGINGFACE_API_KEY" --model-source local --non-interactive
+
 # List available embedding models
 embx models --provider openrouter
 embx models --provider openrouter --format json
@@ -45,6 +54,7 @@ embx models --provider openrouter --format json
 # HuggingFace model discovery (remote/local/all)
 embx models --provider huggingface --source remote --search mini --limit 10
 embx models --provider huggingface --source local
+embx models --provider huggingface --source all
 
 # Select one model id for shell pipelines
 embx models --provider openrouter --pick 1
@@ -130,4 +140,4 @@ embx --show-completion
 - Core command scaffolding is implemented.
 - Provider integrations are intentionally minimal and extensible.
 - `compare` command is available for side-by-side provider checks.
-- Docs in `docs/` explain architecture and roadmap.
+- Docs in `docs/` explain architecture, roadmap, and release workflow.
