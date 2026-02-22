@@ -44,6 +44,56 @@ def test_config_init_and_show() -> None:
         assert "default_provider" in show_result.stdout
 
 
+def test_connect_interactive_openai() -> None:
+    with runner.isolated_filesystem():
+        config_path = Path("embx.connect.config.json")
+        env = {"EMBX_CONFIG_PATH": str(config_path)}
+
+        result = runner.invoke(app, ["connect"], input="1\nsk-openai\n", env=env)
+        assert result.exit_code == 0
+        assert config_path.exists()
+
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        assert data["openai_api_key"] == "sk-openai"
+        assert data["default_provider"] == "openai"
+
+
+def test_connect_non_interactive_requires_values() -> None:
+    result = runner.invoke(app, ["connect", "--provider", "openai", "--non-interactive"])
+    assert result.exit_code == 2
+    assert "--api-key is required in non-interactive mode" in result.output
+
+
+def test_connect_openrouter_flags() -> None:
+    with runner.isolated_filesystem():
+        config_path = Path("embx.connect.config.json")
+        env = {"EMBX_CONFIG_PATH": str(config_path)}
+
+        result = runner.invoke(
+            app,
+            [
+                "connect",
+                "--provider",
+                "openrouter",
+                "--api-key",
+                "sk-openrouter",
+                "--referer",
+                "https://example.com",
+                "--title",
+                "embx-app",
+                "--non-interactive",
+            ],
+            env=env,
+        )
+        assert result.exit_code == 0
+
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        assert data["openrouter_api_key"] == "sk-openrouter"
+        assert data["openrouter_referer"] == "https://example.com"
+        assert data["openrouter_title"] == "embx-app"
+        assert data["default_provider"] == "openrouter"
+
+
 def test_compare_json_success(monkeypatch) -> None:
     async def fake_embed_texts(
         self,

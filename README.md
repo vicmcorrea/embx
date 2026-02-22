@@ -20,11 +20,14 @@ pip install -e .
 # Show providers
 embx providers
 
+# Interactive setup flow
+embx connect
+
 # Check provider configuration and readiness
 embx doctor
 embx doctor --only-configured --check-network
 
-# Initialize local config
+# Optional: initialize config manually
 embx config init
 
 # Embed a single text (argument)

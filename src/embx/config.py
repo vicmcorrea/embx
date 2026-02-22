@@ -116,6 +116,24 @@ def init_config(force: bool = False) -> Path:
     return path
 
 
+def upsert_config(values: dict[str, Any]) -> Path:
+    path = _config_path()
+
+    current: dict[str, Any] = {}
+    if path.exists():
+        current = load_file_config()
+
+    merged = DEFAULT_CONFIG.copy()
+    merged.update(current)
+    for key, value in values.items():
+        if value is not None:
+            merged[key] = value
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
 def masked_config(config: dict[str, Any]) -> dict[str, Any]:
     out = dict(config)
     for key in list(out.keys()):
