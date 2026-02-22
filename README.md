@@ -2,11 +2,12 @@
 
 `embx` is a multi-provider embeddings CLI for quick experimentation and automation.
 
-## Why this exists
+## why this exists
 
-- Use one command surface across OpenAI, OpenRouter, Voyage, and Ollama.
-- Keep output script-friendly (`json`, `jsonl`) but readable by default.
-- Add cache and config layering so provider switching is painless.
+- use one command surface across OpenAI, OpenRouter, Voyage, and Ollama.
+- keep output script-friendly (`json`, `jsonl`) but readable by default.
+- add cache and config layering so provider switching is painless.
+- friends wanted to use it and try it out.
 
 ## Install
 
