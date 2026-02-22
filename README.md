@@ -40,6 +40,10 @@ embx models --provider openrouter --format json
 embx models --provider huggingface --source remote --search mini --limit 10
 embx models --provider huggingface --source local
 
+# Select one model id for shell pipelines
+embx models --provider openrouter --pick 1
+embx models --provider openrouter --choose
+
 # Interactive model browsing
 embx models --interactive
 
@@ -50,6 +54,7 @@ embx config set --key default_provider --value huggingface --non-interactive
 # Check provider configuration and readiness
 embx doctor
 embx doctor --only-configured --check-network
+embx doctor --only-configured --check-auth
 
 # Optional: initialize config manually
 embx config init

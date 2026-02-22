@@ -212,6 +212,59 @@ def test_models_interactive_huggingface_local(monkeypatch) -> None:
     assert "sentence-transformers/all-MiniLM-L6-v2" in result.stdout
 
 
+def test_models_pick_outputs_id(monkeypatch) -> None:
+    async def fake_list_embedding_models(
+        provider_name: str,
+        config: dict,
+        timeout_seconds: int,
+        source: str = "remote",
+    ):
+        _ = (provider_name, config, timeout_seconds, source)
+        return [
+            {"id": "model/a", "name": "A"},
+            {"id": "model/b", "name": "B"},
+        ]
+
+    monkeypatch.setattr(
+        "embx.providers.discovery.list_embedding_models", fake_list_embedding_models
+    )
+
+    result = runner.invoke(app, ["models", "--provider", "openrouter", "--pick", "2"])
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "model/b"
+
+
+def test_models_choose_interactive_outputs_id(monkeypatch) -> None:
+    async def fake_list_embedding_models(
+        provider_name: str,
+        config: dict,
+        timeout_seconds: int,
+        source: str = "remote",
+    ):
+        _ = (provider_name, config, timeout_seconds, source)
+        return [
+            {"id": "model/a", "name": "A"},
+            {"id": "model/b", "name": "B"},
+        ]
+
+    monkeypatch.setattr(
+        "embx.providers.discovery.list_embedding_models", fake_list_embedding_models
+    )
+
+    result = runner.invoke(app, ["models", "--provider", "openrouter", "--choose"], input="1\n")
+    assert result.exit_code == 0
+    assert result.stdout.strip().endswith("model/a")
+
+
+def test_models_choose_non_interactive_fails() -> None:
+    result = runner.invoke(
+        app,
+        ["models", "--provider", "openrouter", "--choose", "--non-interactive"],
+    )
+    assert result.exit_code == 2
+    assert "--choose cannot be used with --non-interactive" in result.output
+
+
 def test_config_set_non_interactive() -> None:
     with runner.isolated_filesystem():
         config_path = Path("embx.config.set.json")
@@ -812,3 +865,33 @@ def test_doctor_network_check_for_ollama(monkeypatch) -> None:
     payload = json.loads(result.stdout)
     assert payload[0]["network_status"] == "ok"
     assert payload[0]["network_detail"] == "HTTP 200"
+
+
+def test_doctor_check_auth_uses_discovery_probe(monkeypatch) -> None:
+    async def fake_test_provider_connection(provider_name: str, config: dict, timeout_seconds: int):
+        _ = (config, timeout_seconds)
+        if provider_name == "openrouter":
+            return False, "bad token"
+        return True, "ok"
+
+    monkeypatch.setattr(
+        "embx.providers.discovery.test_provider_connection",
+        fake_test_provider_connection,
+    )
+
+    result = runner.invoke(
+        app,
+        ["doctor", "--json", "--check-auth", "--only-configured"],
+        env={
+            "EMBX_OPENAI_API_KEY": "key",
+            "EMBX_OPENROUTER_API_KEY": "key",
+            "EMBX_HUGGINGFACE_API_KEY": "key",
+            "EMBX_VOYAGE_API_KEY": "key",
+        },
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    row_map = {row["provider"]: row for row in payload}
+    assert row_map["openai"]["auth_status"] == "ok"
+    assert row_map["openrouter"]["auth_status"] == "error"
+    assert row_map["openrouter"]["auth_detail"] == "bad token"

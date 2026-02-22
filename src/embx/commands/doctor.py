@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from typing import Any
 
@@ -22,16 +23,22 @@ def register_doctor_command(app: typer.Typer) -> None:
             "--check-network",
             help="Run lightweight network checks where possible",
         ),
+        check_auth: bool = typer.Option(
+            False,
+            "--check-auth",
+            help="Run provider connectivity/auth checks when possible.",
+        ),
         timeout_seconds: int = typer.Option(
             3,
             "--timeout-seconds",
             min=1,
-            help="Timeout for network checks",
+            help="Timeout for network/auth checks",
         ),
     ) -> None:
         from embx.config import resolve_config
         from embx.exceptions import ConfigurationError
         from embx.providers import available_provider_metadata
+        from embx.providers.discovery import test_provider_connection
 
         try:
             cfg = resolve_config()
@@ -51,6 +58,23 @@ def register_doctor_command(app: typer.Typer) -> None:
                 base_url = str(cfg.get("ollama_base_url", "http://localhost:11434"))
                 network_status, network_detail = check_ollama_endpoint(base_url, timeout_seconds)
 
+            auth_status = "skipped"
+            auth_detail = ""
+            if check_auth:
+                if not configured:
+                    auth_status = "skipped"
+                    auth_detail = "provider not configured"
+                else:
+                    ok, message = asyncio.run(
+                        test_provider_connection(
+                            provider_name=provider_name,
+                            config=cfg,
+                            timeout_seconds=timeout_seconds,
+                        )
+                    )
+                    auth_status = "ok" if ok else "error"
+                    auth_detail = message
+
             rows.append(
                 {
                     "provider": provider_name,
@@ -58,6 +82,8 @@ def register_doctor_command(app: typer.Typer) -> None:
                     "required": metadata["requires"],
                     "network_status": network_status,
                     "network_detail": network_detail,
+                    "auth_status": auth_status,
+                    "auth_detail": auth_detail,
                 }
             )
 
@@ -76,7 +102,9 @@ def register_doctor_command(app: typer.Typer) -> None:
         table.add_column("Configured")
         table.add_column("Required")
         table.add_column("Network")
-        table.add_column("Detail")
+        table.add_column("Network Detail")
+        table.add_column("Auth")
+        table.add_column("Auth Detail")
         for row in rows:
             table.add_row(
                 str(row["provider"]),
@@ -84,5 +112,7 @@ def register_doctor_command(app: typer.Typer) -> None:
                 str(row["required"]),
                 str(row["network_status"]),
                 str(row["network_detail"]),
+                str(row["auth_status"]),
+                str(row["auth_detail"]),
             )
         Console(no_color=not sys.stdout.isatty()).print(table)

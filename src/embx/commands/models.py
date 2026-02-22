@@ -90,6 +90,21 @@ def _filter_rows(
     return filtered
 
 
+def _choose_row_interactively(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    typer.echo("Select model:")
+    for idx, row in enumerate(rows, start=1):
+        typer.echo(f"  {idx}. {row['id']}")
+
+    raw = typer.prompt("Model number").strip()
+    try:
+        index = int(raw)
+    except ValueError:
+        fail("Model selection must be a number.", code=2)
+    if index < 1 or index > len(rows):
+        fail("Model selection is out of range.", code=2)
+    return rows[index - 1]
+
+
 def register_models_command(app: typer.Typer) -> None:
     @app.command("models")
     def models(
@@ -111,6 +126,17 @@ def register_models_command(app: typer.Typer) -> None:
         output_format: str = typer.Option("pretty", "--format", help="pretty, json, csv, or md"),
         output: Path | None = typer.Option(None, "--output", "-o", help="Write output to file"),
         timeout_seconds: int = typer.Option(10, "--timeout-seconds", min=1, help="Request timeout"),
+        choose: bool = typer.Option(
+            False,
+            "--choose",
+            help="Interactively pick one model and output only its id.",
+        ),
+        pick: int | None = typer.Option(
+            None,
+            "--pick",
+            min=1,
+            help="Pick 1-based model index and output only its id.",
+        ),
         interactive: bool = typer.Option(
             False,
             "--interactive",
@@ -131,6 +157,10 @@ def register_models_command(app: typer.Typer) -> None:
             fail("--format must be one of: pretty, json, csv, md", code=2)
         if interactive and non_interactive:
             fail("--interactive and --non-interactive cannot be used together.", code=2)
+        if choose and pick is not None:
+            fail("--choose and --pick cannot be used together.", code=2)
+        if choose and non_interactive:
+            fail("--choose cannot be used with --non-interactive. Use --pick instead.", code=2)
 
         try:
             cfg = resolve_config()
@@ -178,6 +208,28 @@ def register_models_command(app: typer.Typer) -> None:
 
         rows = _normalize_model_rows(provider_name, raw_models)
         rows = _filter_rows(rows, search=search, limit=limit)
+
+        if choose or pick is not None:
+            if not rows:
+                fail("No models available for selection.", code=2)
+
+            selected: dict[str, Any]
+            if choose:
+                selected = _choose_row_interactively(rows)
+            else:
+                assert pick is not None
+                if pick > len(rows):
+                    fail("--pick is out of range for the filtered model list.", code=2)
+                selected = rows[pick - 1]
+
+            selected_id = str(selected["id"])
+            if output:
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text(selected_id + "\n", encoding="utf-8")
+                typer.secho(f"Wrote output to {output}", fg=typer.colors.GREEN, err=True)
+                return
+            typer.echo(selected_id)
+            return
 
         if output_format == "json" or output is not None:
             emit_json(rows, output)
