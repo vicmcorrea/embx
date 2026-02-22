@@ -18,6 +18,7 @@ from embx.config import init_config, masked_config, resolve_config
 from embx.engine import EmbeddingEngine
 from embx.exceptions import ConfigurationError, ProviderError, ValidationError
 from embx.providers import available_provider_metadata, get_provider
+from embx.ranking import apply_ranking, strip_private_fields, supported_rankings
 
 
 app = typer.Typer(
@@ -128,60 +129,6 @@ def _parse_provider_list(raw: str | None) -> list[str]:
             deduped.append(value)
             seen.add(value)
     return deduped
-
-
-def _aligned_cosine_similarity(a: list[float], b: list[float]) -> float:
-    size = min(len(a), len(b))
-    if size == 0:
-        return 0.0
-
-    dot = 0.0
-    norm_a = 0.0
-    norm_b = 0.0
-    for index in range(size):
-        left = a[index]
-        right = b[index]
-        dot += left * right
-        norm_a += left * left
-        norm_b += right * right
-
-    if norm_a == 0.0 or norm_b == 0.0:
-        return 0.0
-    return dot / ((norm_a**0.5) * (norm_b**0.5))
-
-
-def _assign_quality_scores(rows: list[dict[str, Any]]) -> None:
-    if not rows:
-        return
-    if len(rows) == 1:
-        rows[0]["quality_score"] = 1.0
-        return
-
-    for row in rows:
-        vector = row.get("_vector")
-        if not isinstance(vector, list):
-            row["quality_score"] = 0.0
-            continue
-
-        scores: list[float] = []
-        for other in rows:
-            if other is row:
-                continue
-            other_vector = other.get("_vector")
-            if not isinstance(other_vector, list):
-                continue
-            scores.append(_aligned_cosine_similarity(vector, other_vector))
-
-        row["quality_score"] = 0.0 if not scores else sum(scores) / len(scores)
-
-
-def _strip_private_fields(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    cleaned: list[dict[str, Any]] = []
-    for row in rows:
-        public_row = dict(row)
-        public_row.pop("_vector", None)
-        cleaned.append(public_row)
-    return cleaned
 
 
 def _is_provider_configured(provider_name: str, config: dict[str, Any]) -> bool:
@@ -452,8 +399,10 @@ def compare(
 ) -> None:
     if output_format not in {"pretty", "json", "csv"}:
         _fail("--format must be one of: pretty, json, csv", code=2)
-    if rank_by not in {"none", "latency", "cost", "quality"}:
-        _fail("--rank-by must be one of: none, latency, cost, quality", code=2)
+    ranking_options = supported_rankings()
+    if rank_by not in ranking_options:
+        options_text = ", ".join(ranking_options)
+        _fail(f"--rank-by must be one of: {options_text}", code=2)
 
     input_text = _collect_single_text(text)
     provider_names = _parse_provider_list(providers)
@@ -513,36 +462,10 @@ def compare(
 
     success_count = sum(1 for row in rows if row["status"] == "ok")
 
-    successful_rows = [row for row in rows if row["status"] == "ok"]
-    error_rows = [row for row in rows if row["status"] != "ok"]
-    _assign_quality_scores(successful_rows)
-
-    if rank_by == "latency":
-        successful_rows = sorted(successful_rows, key=lambda row: float(row["latency_ms"]))
-    elif rank_by == "cost":
-        successful_rows = sorted(
-            successful_rows,
-            key=lambda row: float(row["cost_usd"]) if row["cost_usd"] is not None else float("inf"),
-        )
-    elif rank_by == "quality":
-        successful_rows = sorted(
-            successful_rows,
-            key=lambda row: float(row["quality_score"]),
-            reverse=True,
-        )
-
-    if rank_by == "none":
-        ranked_rows = list(rows)
-        for row in ranked_rows:
-            row["rank"] = None
-    else:
-        ranked_rows = successful_rows + error_rows
-        for index, row in enumerate(successful_rows, start=1):
-            row["rank"] = index
-        for row in error_rows:
-            row["rank"] = None
-
-    public_rows = _strip_private_fields(ranked_rows)
+    ranking_result = apply_ranking(rows, rank_by)
+    ranked_rows = ranking_result.ranked_rows
+    successful_rows = ranking_result.successful_rows
+    public_rows = strip_private_fields(ranked_rows)
 
     if output_format == "csv":
         _emit_csv(public_rows, output)
