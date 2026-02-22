@@ -17,7 +17,7 @@ from embx import __version__
 from embx.config import init_config, masked_config, resolve_config
 from embx.engine import EmbeddingEngine
 from embx.exceptions import ConfigurationError, ProviderError, ValidationError
-from embx.providers import available_provider_metadata
+from embx.providers import available_provider_metadata, get_provider
 
 
 app = typer.Typer(
@@ -182,6 +182,14 @@ def _strip_private_fields(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         public_row.pop("_vector", None)
         cleaned.append(public_row)
     return cleaned
+
+
+def _is_provider_configured(provider_name: str, config: dict[str, Any]) -> bool:
+    provider = get_provider(provider_name)
+    required_keys = getattr(provider, "required_config_keys", ())
+    if not required_keys:
+        return True
+    return all(str(config.get(key, "")).strip() for key in required_keys)
 
 
 async def _compare_provider(
@@ -416,6 +424,11 @@ def compare(
         "--providers",
         help="Comma-separated providers. Defaults to all registered providers.",
     ),
+    only_configured: bool = typer.Option(
+        False,
+        "--only-configured/--include-unconfigured",
+        help="Skip providers with missing required credentials.",
+    ),
     model: str | None = typer.Option(
         None,
         "--model",
@@ -450,6 +463,18 @@ def compare(
         engine = EmbeddingEngine(cfg)
     except ConfigurationError as exc:
         _fail(str(exc), code=2)
+
+    if only_configured:
+        provider_names = [
+            provider_name
+            for provider_name in provider_names
+            if _is_provider_configured(provider_name, cfg)
+        ]
+        if not provider_names:
+            _fail(
+                "No configured providers available. Add credentials or use --include-unconfigured.",
+                code=2,
+            )
 
     rows: list[dict[str, Any]]
     if continue_on_error:

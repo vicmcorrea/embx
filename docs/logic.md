@@ -42,6 +42,7 @@ CLI command
 - `compare --rank-by latency|cost` sorts successful providers and adds rank metadata.
 - `compare --rank-by quality` ranks by average cosine agreement with other successful providers.
 - `compare` runs provider calls concurrently by default (`--continue-on-error`) for faster side-by-side checks.
+- `compare --only-configured` filters out providers that are missing required credentials.
 - Human mode (`pretty`) prioritizes readability and avoids noisy internals.
 
 ## Extension points

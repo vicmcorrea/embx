@@ -50,6 +50,9 @@ embx compare "semantic retrieval" --providers openai,voyage,ollama --rank-by qua
 # Emit CSV for spreadsheets or BI tools
 embx compare "semantic retrieval" --providers openai,voyage --format csv
 embx batch inputs.txt --format csv --output embeddings.csv
+
+# Skip providers without configured credentials
+embx compare "semantic retrieval" --providers openai,voyage,ollama --only-configured
 ```
 
 ## Config precedence

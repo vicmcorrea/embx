@@ -329,3 +329,66 @@ def test_compare_rank_by_quality_orders_results(monkeypatch) -> None:
     assert payload[0]["provider"] in {"openai", "voyage"}
     assert payload[-1]["provider"] == "ollama"
     assert payload[0]["quality_score"] is not None
+
+
+def test_compare_only_configured_filters_missing_keys(monkeypatch) -> None:
+    async def fake_embed_texts(
+        self,
+        texts,
+        provider_name,
+        model=None,
+        dimensions=None,
+        use_cache=True,
+    ):
+        _ = (texts, model, dimensions, use_cache)
+        return [
+            EmbeddingResult(
+                text="x",
+                vector=[0.1, 0.2],
+                provider=provider_name,
+                model="mock-model",
+                cached=False,
+            )
+        ]
+
+    monkeypatch.setattr("embx.cli.EmbeddingEngine.embed_texts", fake_embed_texts)
+
+    result = runner.invoke(
+        app,
+        [
+            "compare",
+            "hello",
+            "--providers",
+            "openai,ollama",
+            "--only-configured",
+            "--format",
+            "json",
+        ],
+        env={
+            "EMBX_OPENAI_API_KEY": "",
+            "EMBX_VOYAGE_API_KEY": "",
+        },
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    providers = [item["provider"] for item in payload]
+    assert providers == ["ollama"]
+
+
+def test_compare_only_configured_with_none_fails() -> None:
+    result = runner.invoke(
+        app,
+        [
+            "compare",
+            "hello",
+            "--providers",
+            "openai,voyage",
+            "--only-configured",
+        ],
+        env={
+            "EMBX_OPENAI_API_KEY": "",
+            "EMBX_VOYAGE_API_KEY": "",
+        },
+    )
+    assert result.exit_code == 2
+    assert "No configured providers available" in result.output
