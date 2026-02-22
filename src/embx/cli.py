@@ -291,12 +291,12 @@ def embed(
     provider: str | None = typer.Option(None, "--provider", "-p", help="Embedding provider"),
     model: str | None = typer.Option(None, "--model", "-m", help="Model name"),
     dimensions: int | None = typer.Option(None, "--dimensions", min=1, help="Output dimensions"),
-    output_format: str = typer.Option("pretty", "--format", help="pretty or json"),
+    output_format: str = typer.Option("pretty", "--format", help="pretty, json, or csv"),
     output: Path | None = typer.Option(None, "--output", "-o", help="Write JSON result to file"),
     no_cache: bool = typer.Option(False, "--no-cache", help="Disable cache for this call"),
 ) -> None:
-    if output_format not in {"pretty", "json"}:
-        _fail("--format must be one of: pretty, json", code=2)
+    if output_format not in {"pretty", "json", "csv"}:
+        _fail("--format must be one of: pretty, json, csv", code=2)
 
     try:
         input_text = _collect_single_text(text)
@@ -322,6 +322,9 @@ def embed(
         _fail(str(exc), code=2)
 
     payload = result.to_dict()
+    if output_format == "csv":
+        _emit_csv([payload], output)
+        return
     if output_format == "json" or output is not None:
         _emit_json(payload, output)
         return

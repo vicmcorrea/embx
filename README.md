@@ -29,6 +29,9 @@ embx embed "vector databases are useful"
 # Embed from stdin
 printf "semantic search" | embx embed --format json
 
+# Embed as CSV
+embx embed "semantic search" --format csv
+
 # Batch embed line-delimited file
 embx batch inputs.txt --format jsonl --output outputs.jsonl
 

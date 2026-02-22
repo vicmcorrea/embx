@@ -255,6 +255,34 @@ def test_batch_csv_output(monkeypatch) -> None:
     assert "second" in result.stdout
 
 
+def test_embed_csv_output(monkeypatch) -> None:
+    async def fake_embed_texts(
+        self,
+        texts,
+        provider_name,
+        model=None,
+        dimensions=None,
+        use_cache=True,
+    ):
+        _ = (provider_name, model, dimensions, use_cache)
+        return [
+            EmbeddingResult(
+                text=texts[0],
+                vector=[0.5, 0.25],
+                provider="mock",
+                model="mock-model",
+                cached=False,
+            )
+        ]
+
+    monkeypatch.setattr("embx.cli.EmbeddingEngine.embed_texts", fake_embed_texts)
+
+    result = runner.invoke(app, ["embed", "hello", "--format", "csv"])
+    assert result.exit_code == 0
+    assert "text,vector,provider,model" in result.stdout
+    assert "hello" in result.stdout
+
+
 def test_compare_rank_by_quality_orders_results(monkeypatch) -> None:
     async def fake_embed_texts(
         self,

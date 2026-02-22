@@ -35,6 +35,7 @@ CLI command
 ## Output contract
 
 - `embed --format json` returns one JSON object.
+- `embed --format csv` returns a single CSV row plus header.
 - `batch --format json` returns one JSON array.
 - `batch --format jsonl` returns one object per line.
 - `compare --format json` returns one row per provider with status, latency, and error fields.
