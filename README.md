@@ -11,7 +11,13 @@
 ## Install
 
 ```bash
-pip install -e .
+pip install embx-cli
+```
+
+For local development from source:
+
+```bash
+pip install -e ".[dev]"
 ```
 
 ## Quick start
