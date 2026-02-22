@@ -46,11 +46,14 @@ class VoyageProvider(EmbeddingProvider):
         }
 
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-            response = await client.post(
-                "https://api.voyageai.com/v1/embeddings",
-                json=payload,
-                headers=headers,
-            )
+            try:
+                response = await client.post(
+                    "https://api.voyageai.com/v1/embeddings",
+                    json=payload,
+                    headers=headers,
+                )
+            except httpx.HTTPError as exc:
+                raise ProviderError(f"Voyage request failed: {exc}") from exc
 
         if response.status_code >= 400:
             raise ProviderError(

@@ -63,7 +63,7 @@ def test_compare_json_success(monkeypatch) -> None:
             )
         ]
 
-    monkeypatch.setattr("embx.cli.EmbeddingEngine.embed_texts", fake_embed_texts)
+    monkeypatch.setattr("embx.engine.EmbeddingEngine.embed_texts", fake_embed_texts)
 
     result = runner.invoke(
         app,
@@ -103,7 +103,7 @@ def test_compare_rank_by_cost_orders_results(monkeypatch) -> None:
             )
         ]
 
-    monkeypatch.setattr("embx.cli.EmbeddingEngine.embed_texts", fake_embed_texts)
+    monkeypatch.setattr("embx.engine.EmbeddingEngine.embed_texts", fake_embed_texts)
 
     result = runner.invoke(
         app,
@@ -155,7 +155,7 @@ def test_compare_continue_on_error_keeps_success(monkeypatch) -> None:
             )
         ]
 
-    monkeypatch.setattr("embx.cli.EmbeddingEngine.embed_texts", fake_embed_texts)
+    monkeypatch.setattr("embx.engine.EmbeddingEngine.embed_texts", fake_embed_texts)
 
     result = runner.invoke(
         app,
@@ -180,7 +180,7 @@ def test_compare_fail_fast_stops_on_error(monkeypatch) -> None:
         _ = (texts, provider_name, model, dimensions, use_cache)
         raise RuntimeError("forced")
 
-    monkeypatch.setattr("embx.cli.EmbeddingEngine.embed_texts", fake_embed_texts)
+    monkeypatch.setattr("embx.engine.EmbeddingEngine.embed_texts", fake_embed_texts)
 
     result = runner.invoke(
         app,
@@ -210,7 +210,7 @@ def test_compare_csv_output(monkeypatch) -> None:
             )
         ]
 
-    monkeypatch.setattr("embx.cli.EmbeddingEngine.embed_texts", fake_embed_texts)
+    monkeypatch.setattr("embx.engine.EmbeddingEngine.embed_texts", fake_embed_texts)
 
     result = runner.invoke(
         app,
@@ -219,6 +219,68 @@ def test_compare_csv_output(monkeypatch) -> None:
     assert result.exit_code == 0
     assert "provider,status" in result.stdout
     assert "openai,ok" in result.stdout
+
+
+def test_compare_markdown_output(monkeypatch) -> None:
+    async def fake_embed_texts(
+        self,
+        texts,
+        provider_name,
+        model=None,
+        dimensions=None,
+        use_cache=True,
+    ):
+        _ = (texts, model, dimensions, use_cache)
+        return [
+            EmbeddingResult(
+                text="x",
+                vector=[0.0, 1.0],
+                provider=provider_name,
+                model="mock",
+                cached=False,
+            )
+        ]
+
+    monkeypatch.setattr("embx.engine.EmbeddingEngine.embed_texts", fake_embed_texts)
+
+    result = runner.invoke(
+        app,
+        ["compare", "hello", "--providers", "openai", "--format", "md"],
+    )
+    assert result.exit_code == 0
+    assert "| provider |" in result.stdout
+    assert "| openai |" in result.stdout
+
+
+def test_embed_retry_flags_reach_engine_config(monkeypatch) -> None:
+    async def fake_embed_texts(
+        self,
+        texts,
+        provider_name,
+        model=None,
+        dimensions=None,
+        use_cache=True,
+    ):
+        _ = (texts, provider_name, model, dimensions, use_cache)
+        assert self.config["retry_attempts"] == 2
+        assert self.config["retry_backoff_seconds"] == 0.1
+        return [
+            EmbeddingResult(
+                text="x",
+                vector=[0.0, 1.0],
+                provider="mock",
+                model="mock",
+                cached=False,
+            )
+        ]
+
+    monkeypatch.setattr("embx.engine.EmbeddingEngine.embed_texts", fake_embed_texts)
+
+    result = runner.invoke(
+        app,
+        ["embed", "hello", "--format", "json", "--retries", "2", "--retry-backoff", "0.1"],
+    )
+    assert result.exit_code == 0
 
 
 def test_batch_csv_output(monkeypatch) -> None:
@@ -242,7 +304,7 @@ def test_batch_csv_output(monkeypatch) -> None:
             for value in texts
         ]
 
-    monkeypatch.setattr("embx.cli.EmbeddingEngine.embed_texts", fake_embed_texts)
+    monkeypatch.setattr("embx.engine.EmbeddingEngine.embed_texts", fake_embed_texts)
 
     with runner.isolated_filesystem():
         input_path = Path("inputs.txt")
@@ -275,7 +337,7 @@ def test_embed_csv_output(monkeypatch) -> None:
             )
         ]
 
-    monkeypatch.setattr("embx.cli.EmbeddingEngine.embed_texts", fake_embed_texts)
+    monkeypatch.setattr("embx.engine.EmbeddingEngine.embed_texts", fake_embed_texts)
 
     result = runner.invoke(app, ["embed", "hello", "--format", "csv"])
     assert result.exit_code == 0
@@ -308,7 +370,7 @@ def test_compare_rank_by_quality_orders_results(monkeypatch) -> None:
             )
         ]
 
-    monkeypatch.setattr("embx.cli.EmbeddingEngine.embed_texts", fake_embed_texts)
+    monkeypatch.setattr("embx.engine.EmbeddingEngine.embed_texts", fake_embed_texts)
 
     result = runner.invoke(
         app,
@@ -351,7 +413,7 @@ def test_compare_only_configured_filters_missing_keys(monkeypatch) -> None:
             )
         ]
 
-    monkeypatch.setattr("embx.cli.EmbeddingEngine.embed_texts", fake_embed_texts)
+    monkeypatch.setattr("embx.engine.EmbeddingEngine.embed_texts", fake_embed_texts)
 
     result = runner.invoke(
         app,
@@ -425,7 +487,7 @@ def test_compare_top_limits_successful_results(monkeypatch) -> None:
             )
         ]
 
-    monkeypatch.setattr("embx.cli.EmbeddingEngine.embed_texts", fake_embed_texts)
+    monkeypatch.setattr("embx.engine.EmbeddingEngine.embed_texts", fake_embed_texts)
 
     result = runner.invoke(
         app,
@@ -471,7 +533,7 @@ def test_compare_hide_errors_excludes_failed_rows(monkeypatch) -> None:
             )
         ]
 
-    monkeypatch.setattr("embx.cli.EmbeddingEngine.embed_texts", fake_embed_texts)
+    monkeypatch.setattr("embx.engine.EmbeddingEngine.embed_texts", fake_embed_texts)
 
     result = runner.invoke(
         app,
@@ -524,7 +586,7 @@ def test_doctor_network_check_for_ollama(monkeypatch) -> None:
         assert url.endswith("/api/tags")
         return Response()
 
-    monkeypatch.setattr("embx.cli.httpx.get", fake_get)
+    monkeypatch.setattr("embx.commands.shared.httpx.get", fake_get)
 
     result = runner.invoke(
         app,

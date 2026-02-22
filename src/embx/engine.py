@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+
 from embx.cache import EmbeddingCache
+from embx.exceptions import ConfigurationError, ProviderError
 from embx.models import EmbeddingResult
+from embx.providers.base import EmbeddingProvider
 from embx.providers.registry import get_provider
 
 
@@ -42,12 +46,11 @@ class EmbeddingEngine:
             missing_texts.append(text)
 
         if missing_texts:
-            fetched = await provider.embed(
+            fetched = await self._embed_with_retry(
+                provider=provider,
                 texts=missing_texts,
                 model=resolved_model,
                 dimensions=dimensions,
-                timeout_seconds=int(self.config.get("timeout_seconds", 30)),
-                config=self.config,
             )
             for idx, item in zip(missing_indices, fetched, strict=True):
                 ordered[idx] = item
@@ -61,3 +64,38 @@ class EmbeddingEngine:
                     )
 
         return [item for item in ordered if item is not None]
+
+    async def _embed_with_retry(
+        self,
+        *,
+        provider: EmbeddingProvider,
+        texts: list[str],
+        model: str,
+        dimensions: int | None,
+    ) -> list[EmbeddingResult]:
+        retry_attempts = int(self.config.get("retry_attempts", 0))
+        backoff_seconds = float(self.config.get("retry_backoff_seconds", 0.25))
+        timeout_seconds = int(self.config.get("timeout_seconds", 30))
+
+        attempt = 0
+        while True:
+            try:
+                return await provider.embed(
+                    texts=texts,
+                    model=model,
+                    dimensions=dimensions,
+                    timeout_seconds=timeout_seconds,
+                    config=self.config,
+                )
+            except ConfigurationError:
+                raise
+            except ProviderError:
+                if attempt >= retry_attempts:
+                    raise
+                await asyncio.sleep(max(0.0, backoff_seconds) * (2**attempt))
+                attempt += 1
+            except Exception as exc:
+                if attempt >= retry_attempts:
+                    raise ProviderError(f"Provider request failed: {exc}") from exc
+                await asyncio.sleep(max(0.0, backoff_seconds) * (2**attempt))
+                attempt += 1

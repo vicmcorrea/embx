@@ -3,6 +3,7 @@ from pathlib import Path
 
 from embx.cache import EmbeddingCache
 from embx.engine import EmbeddingEngine
+from embx.exceptions import ProviderError
 from embx.models import EmbeddingResult
 
 
@@ -131,3 +132,91 @@ def test_engine_can_bypass_cache(monkeypatch, tmp_path: Path) -> None:
     )
 
     assert len(provider.calls) == 2
+
+
+def test_engine_retries_then_succeeds(monkeypatch, tmp_path: Path) -> None:
+    class FlakyProvider(DummyProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.attempt = 0
+
+        async def embed(
+            self,
+            texts: list[str],
+            model: str,
+            dimensions: int | None,
+            timeout_seconds: int,
+            config: dict,
+        ) -> list[EmbeddingResult]:
+            self.attempt += 1
+            if self.attempt == 1:
+                raise ProviderError("temporary failure")
+            return await super().embed(texts, model, dimensions, timeout_seconds, config)
+
+    provider = FlakyProvider()
+    monkeypatch.setattr("embx.engine.get_provider", lambda _: provider)
+    monkeypatch.setenv("EMBX_CACHE_PATH", str(tmp_path / "cache.db"))
+
+    engine = EmbeddingEngine(
+        {
+            "cache_enabled": False,
+            "timeout_seconds": 12,
+            "retry_attempts": 1,
+            "retry_backoff_seconds": 0.0,
+        }
+    )
+
+    results = asyncio.run(
+        engine.embed_texts(
+            texts=["alpha"],
+            provider_name="dummy",
+            model="m",
+            dimensions=2,
+            use_cache=False,
+        )
+    )
+
+    assert provider.attempt == 2
+    assert results[0].text == "alpha"
+
+
+def test_engine_retry_exhaustion_raises(monkeypatch, tmp_path: Path) -> None:
+    class AlwaysFailProvider(DummyProvider):
+        async def embed(
+            self,
+            texts: list[str],
+            model: str,
+            dimensions: int | None,
+            timeout_seconds: int,
+            config: dict,
+        ) -> list[EmbeddingResult]:
+            _ = (texts, model, dimensions, timeout_seconds, config)
+            raise ProviderError("always failing")
+
+    provider = AlwaysFailProvider()
+    monkeypatch.setattr("embx.engine.get_provider", lambda _: provider)
+    monkeypatch.setenv("EMBX_CACHE_PATH", str(tmp_path / "cache.db"))
+
+    engine = EmbeddingEngine(
+        {
+            "cache_enabled": False,
+            "timeout_seconds": 12,
+            "retry_attempts": 1,
+            "retry_backoff_seconds": 0.0,
+        }
+    )
+
+    try:
+        asyncio.run(
+            engine.embed_texts(
+                texts=["alpha"],
+                provider_name="dummy",
+                model="m",
+                dimensions=2,
+                use_cache=False,
+            )
+        )
+    except ProviderError as exc:
+        assert "always failing" in str(exc)
+    else:
+        raise AssertionError("Expected ProviderError")

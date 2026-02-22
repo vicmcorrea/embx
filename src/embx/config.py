@@ -12,6 +12,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "default_provider": "openai",
     "default_model": "text-embedding-3-small",
     "timeout_seconds": 30,
+    "retry_attempts": 0,
+    "retry_backoff_seconds": 0.25,
     "cache_enabled": True,
     "openai_api_key": "",
     "voyage_api_key": "",
@@ -54,6 +56,8 @@ def load_env_config() -> dict[str, Any]:
         "default_provider": ("EMBX_PROVIDER", str),
         "default_model": ("EMBX_MODEL", str),
         "timeout_seconds": ("EMBX_TIMEOUT_SECONDS", int),
+        "retry_attempts": ("EMBX_RETRY_ATTEMPTS", int),
+        "retry_backoff_seconds": ("EMBX_RETRY_BACKOFF_SECONDS", float),
         "cache_enabled": ("EMBX_CACHE_ENABLED", bool),
         "openai_api_key": ("EMBX_OPENAI_API_KEY", str),
         "voyage_api_key": ("EMBX_VOYAGE_API_KEY", str),
@@ -73,6 +77,11 @@ def load_env_config() -> dict[str, Any]:
                 out[key] = int(value)
             except ValueError as exc:
                 raise ConfigurationError(f"{env_var} must be an integer") from exc
+        elif expected_type is float:
+            try:
+                out[key] = float(value)
+            except ValueError as exc:
+                raise ConfigurationError(f"{env_var} must be a float") from exc
         else:
             out[key] = value
     return out

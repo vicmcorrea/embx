@@ -32,10 +32,13 @@ class OllamaProvider(EmbeddingProvider):
         out: list[EmbeddingResult] = []
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
             for text in texts:
-                response = await client.post(
-                    f"{base_url}/api/embeddings",
-                    json={"model": model, "prompt": text},
-                )
+                try:
+                    response = await client.post(
+                        f"{base_url}/api/embeddings",
+                        json={"model": model, "prompt": text},
+                    )
+                except httpx.HTTPError as exc:
+                    raise ProviderError(f"Ollama request failed: {exc}") from exc
                 if response.status_code >= 400:
                     raise ProviderError(
                         f"Ollama embeddings request failed ({response.status_code}): {response.text}"
