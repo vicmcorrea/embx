@@ -7,8 +7,6 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
-from rich.table import Table
 
 from embx.commands.shared import (
     collect_single_text,
@@ -20,21 +18,19 @@ from embx.commands.shared import (
     parse_provider_list,
     safe_vector_preview,
 )
-from embx.config import resolve_config
-from embx.engine import EmbeddingEngine
-from embx.exceptions import ConfigurationError, ProviderError, ValidationError
-from embx.ranking import apply_ranking, strip_private_fields, supported_rankings
 
 
 async def _compare_provider(
     *,
-    engine: EmbeddingEngine,
+    engine: Any,
     input_text: str,
     provider_name: str,
     model: str | None,
     dimensions: int | None,
     use_cache: bool,
 ) -> dict[str, Any]:
+    from embx.exceptions import ConfigurationError, ProviderError, ValidationError
+
     started = time.perf_counter()
     try:
         results = await engine.embed_texts(
@@ -135,6 +131,11 @@ def register_compare_command(app: typer.Typer) -> None:
             help="Initial retry backoff in seconds",
         ),
     ) -> None:
+        from embx.config import resolve_config
+        from embx.engine import EmbeddingEngine
+        from embx.exceptions import ConfigurationError
+        from embx.ranking import apply_ranking, strip_private_fields, supported_rankings
+
         if output_format not in {"pretty", "json", "csv", "md"}:
             fail("--format must be one of: pretty, json, csv, md", code=2)
 
@@ -234,6 +235,9 @@ def register_compare_command(app: typer.Typer) -> None:
         elif output_format == "md":
             emit_markdown(public_rows, output)
         else:
+            from rich.console import Console
+            from rich.table import Table
+
             table = Table(title="Embedding comparison")
             table.add_column("Rank")
             table.add_column("Provider")

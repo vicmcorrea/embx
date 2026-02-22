@@ -3,11 +3,8 @@ from __future__ import annotations
 import sys
 
 import typer
-from rich.console import Console
-from rich.table import Table
 
 from embx.commands.shared import emit_json
-from embx.providers import available_provider_metadata
 
 
 def register_providers_command(app: typer.Typer) -> None:
@@ -15,11 +12,16 @@ def register_providers_command(app: typer.Typer) -> None:
     def providers(
         json_output: bool = typer.Option(False, "--json", help="Print as JSON"),
     ) -> None:
+        from embx.providers import available_provider_metadata
+
         rows = available_provider_metadata()
 
         if json_output:
             emit_json(rows)
             return
+
+        from rich.console import Console
+        from rich.table import Table
 
         console = Console(no_color=not sys.stdout.isatty())
         table = Table(title="Available providers")

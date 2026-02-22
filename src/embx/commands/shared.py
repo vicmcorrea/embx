@@ -10,8 +10,6 @@ from typing import Any, NoReturn
 import httpx
 import typer
 
-from embx.providers import available_provider_metadata, get_provider
-
 
 def fail(message: str, code: int = 1) -> NoReturn:
     typer.secho(f"Error: {message}", fg=typer.colors.RED, err=True)
@@ -106,6 +104,8 @@ def emit_markdown(rows: list[dict[str, Any]], output: Path | None = None) -> Non
 
 
 def all_provider_names() -> list[str]:
+    from embx.providers import available_provider_metadata
+
     return [row["name"] for row in available_provider_metadata()]
 
 
@@ -127,6 +127,8 @@ def parse_provider_list(raw: str | None) -> list[str]:
 
 
 def is_provider_configured(provider_name: str, config: dict[str, Any]) -> bool:
+    from embx.providers import get_provider
+
     provider = get_provider(provider_name)
     required_keys = getattr(provider, "required_config_keys", ())
     if not required_keys:

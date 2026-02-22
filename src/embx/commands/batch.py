@@ -7,9 +7,6 @@ from pathlib import Path
 import typer
 
 from embx.commands.shared import emit_csv, fail
-from embx.config import resolve_config
-from embx.engine import EmbeddingEngine
-from embx.exceptions import ConfigurationError, ProviderError, ValidationError
 
 
 def register_batch_command(app: typer.Typer) -> None:
@@ -34,6 +31,10 @@ def register_batch_command(app: typer.Typer) -> None:
             help="Initial retry backoff in seconds",
         ),
     ) -> None:
+        from embx.config import resolve_config
+        from embx.engine import EmbeddingEngine
+        from embx.exceptions import ConfigurationError, ProviderError, ValidationError
+
         if output_format not in {"json", "jsonl", "csv"}:
             fail("--format must be one of: jsonl, json, csv", code=2)
 

@@ -5,13 +5,8 @@ import sys
 from pathlib import Path
 
 import typer
-from rich.console import Console
-from rich.table import Table
 
 from embx.commands.shared import collect_single_text, emit_csv, emit_json, fail, safe_vector_preview
-from embx.config import resolve_config
-from embx.engine import EmbeddingEngine
-from embx.exceptions import ConfigurationError, ProviderError, ValidationError
 
 
 def register_embed_command(app: typer.Typer) -> None:
@@ -39,6 +34,10 @@ def register_embed_command(app: typer.Typer) -> None:
             help="Initial retry backoff in seconds",
         ),
     ) -> None:
+        from embx.config import resolve_config
+        from embx.engine import EmbeddingEngine
+        from embx.exceptions import ConfigurationError, ProviderError, ValidationError
+
         if output_format not in {"pretty", "json", "csv"}:
             fail("--format must be one of: pretty, json, csv", code=2)
 
@@ -74,6 +73,9 @@ def register_embed_command(app: typer.Typer) -> None:
         if output_format == "json" or output is not None:
             emit_json(payload, output)
             return
+
+        from rich.console import Console
+        from rich.table import Table
 
         table = Table(title="Embedding")
         table.add_column("Field")

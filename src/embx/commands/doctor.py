@@ -4,13 +4,8 @@ import sys
 from typing import Any
 
 import typer
-from rich.console import Console
-from rich.table import Table
 
 from embx.commands.shared import check_ollama_endpoint, emit_json, fail, is_provider_configured
-from embx.config import resolve_config
-from embx.exceptions import ConfigurationError
-from embx.providers import available_provider_metadata
 
 
 def register_doctor_command(app: typer.Typer) -> None:
@@ -34,6 +29,10 @@ def register_doctor_command(app: typer.Typer) -> None:
             help="Timeout for network checks",
         ),
     ) -> None:
+        from embx.config import resolve_config
+        from embx.exceptions import ConfigurationError
+        from embx.providers import available_provider_metadata
+
         try:
             cfg = resolve_config()
         except ConfigurationError as exc:
@@ -68,6 +67,9 @@ def register_doctor_command(app: typer.Typer) -> None:
         if json_output:
             emit_json(rows)
             return
+
+        from rich.console import Console
+        from rich.table import Table
 
         table = Table(title="embx doctor")
         table.add_column("Provider")
