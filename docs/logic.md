@@ -39,6 +39,7 @@ CLI command
 - `batch --format json` returns one JSON array.
 - `batch --format jsonl` returns one object per line.
 - `compare --format json` returns one row per provider with status, latency, and error fields.
+- `doctor --json` returns provider configuration diagnostics.
 - `compare --rank-by latency|cost` sorts successful providers and adds rank metadata.
 - `compare --rank-by quality` ranks by average cosine agreement with other successful providers.
 - `compare` runs provider calls concurrently by default (`--continue-on-error`) for faster side-by-side checks.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import httpx
 import io
 import json
 import sys
@@ -139,6 +140,19 @@ def _is_provider_configured(provider_name: str, config: dict[str, Any]) -> bool:
     return all(str(config.get(key, "")).strip() for key in required_keys)
 
 
+def _check_ollama_endpoint(base_url: str, timeout_seconds: int) -> tuple[str, str]:
+    try:
+        response = httpx.get(
+            f"{base_url.rstrip('/')}/api/tags",
+            timeout=timeout_seconds,
+        )
+        if response.status_code < 400:
+            return "ok", f"HTTP {response.status_code}"
+        return "error", f"HTTP {response.status_code}"
+    except Exception as exc:
+        return "error", str(exc)
+
+
 async def _compare_provider(
     *,
     engine: EmbeddingEngine,
@@ -208,6 +222,78 @@ def providers(
     for row in rows:
         table.add_row(row["name"], row["default_model"], row["requires"])
     console.print(table)
+
+
+@app.command("doctor")
+def doctor(
+    json_output: bool = typer.Option(False, "--json", help="Print as JSON"),
+    only_configured: bool = typer.Option(
+        False,
+        "--only-configured",
+        help="Show only providers that are configured",
+    ),
+    check_network: bool = typer.Option(
+        False,
+        "--check-network",
+        help="Run lightweight network checks where possible",
+    ),
+    timeout_seconds: int = typer.Option(
+        3,
+        "--timeout-seconds",
+        min=1,
+        help="Timeout for network checks",
+    ),
+) -> None:
+    try:
+        cfg = resolve_config()
+    except ConfigurationError as exc:
+        _fail(str(exc), code=2)
+
+    rows: list[dict[str, Any]] = []
+    for metadata in available_provider_metadata():
+        provider_name = metadata["name"]
+        configured = _is_provider_configured(provider_name, cfg)
+        if only_configured and not configured:
+            continue
+
+        network_status = "skipped"
+        network_detail = ""
+        if check_network and provider_name == "ollama":
+            base_url = str(cfg.get("ollama_base_url", "http://localhost:11434"))
+            network_status, network_detail = _check_ollama_endpoint(base_url, timeout_seconds)
+
+        rows.append(
+            {
+                "provider": provider_name,
+                "configured": configured,
+                "required": metadata["requires"],
+                "network_status": network_status,
+                "network_detail": network_detail,
+            }
+        )
+
+    if not rows:
+        _fail("No providers matched current filters.", code=2)
+
+    if json_output:
+        _emit_json(rows)
+        return
+
+    table = Table(title="embx doctor")
+    table.add_column("Provider")
+    table.add_column("Configured")
+    table.add_column("Required")
+    table.add_column("Network")
+    table.add_column("Detail")
+    for row in rows:
+        table.add_row(
+            str(row["provider"]),
+            str(row["configured"]),
+            str(row["required"]),
+            str(row["network_status"]),
+            str(row["network_detail"]),
+        )
+    Console(no_color=not sys.stdout.isatty()).print(table)
 
 
 @config_app.command("init")

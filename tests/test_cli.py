@@ -490,3 +490,52 @@ def test_compare_hide_errors_excludes_failed_rows(monkeypatch) -> None:
     assert len(payload) == 1
     assert payload[0]["provider"] == "voyage"
     assert payload[0]["status"] == "ok"
+
+
+def test_doctor_json_lists_providers() -> None:
+    result = runner.invoke(app, ["doctor", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    providers = {item["provider"] for item in payload}
+    assert {"openai", "voyage", "ollama"}.issubset(providers)
+
+
+def test_doctor_only_configured_filters_results() -> None:
+    result = runner.invoke(
+        app,
+        ["doctor", "--json", "--only-configured"],
+        env={
+            "EMBX_OPENAI_API_KEY": "",
+            "EMBX_VOYAGE_API_KEY": "",
+        },
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    providers = [item["provider"] for item in payload]
+    assert providers == ["ollama"]
+
+
+def test_doctor_network_check_for_ollama(monkeypatch) -> None:
+    class Response:
+        status_code = 200
+
+    def fake_get(url: str, timeout: int):
+        _ = timeout
+        assert url.endswith("/api/tags")
+        return Response()
+
+    monkeypatch.setattr("embx.cli.httpx.get", fake_get)
+
+    result = runner.invoke(
+        app,
+        ["doctor", "--json", "--only-configured", "--check-network"],
+        env={
+            "EMBX_OPENAI_API_KEY": "",
+            "EMBX_VOYAGE_API_KEY": "",
+            "EMBX_OLLAMA_BASE_URL": "http://localhost:11434",
+        },
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload[0]["network_status"] == "ok"
+    assert payload[0]["network_detail"] == "HTTP 200"
