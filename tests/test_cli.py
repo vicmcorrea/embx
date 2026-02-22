@@ -94,6 +94,93 @@ def test_connect_openrouter_flags() -> None:
         assert data["default_provider"] == "openrouter"
 
 
+def test_connect_all_wizard_multiple_providers() -> None:
+    with runner.isolated_filesystem():
+        config_path = Path("embx.connect.config.json")
+        env = {"EMBX_CONFIG_PATH": str(config_path)}
+
+        result = runner.invoke(
+            app,
+            ["connect", "--all"],
+            input="y\nsk-openai\nn\ny\nsk-voyage\nn\n",
+            env=env,
+        )
+        assert result.exit_code == 0
+
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        assert data["openai_api_key"] == "sk-openai"
+        assert data["voyage_api_key"] == "sk-voyage"
+        assert data["default_provider"] == "openai"
+
+
+def test_connect_test_flag_success(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "embx.commands.connect._run_connect_test",
+        lambda provider_name, cfg, timeout_seconds: (True, "ok"),
+    )
+
+    with runner.isolated_filesystem():
+        config_path = Path("embx.connect.config.json")
+        env = {"EMBX_CONFIG_PATH": str(config_path)}
+
+        result = runner.invoke(
+            app,
+            [
+                "connect",
+                "--provider",
+                "openai",
+                "--api-key",
+                "sk-openai",
+                "--non-interactive",
+                "--test",
+            ],
+            env=env,
+        )
+        assert result.exit_code == 0
+
+
+def test_connect_test_flag_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "embx.commands.connect._run_connect_test",
+        lambda provider_name, cfg, timeout_seconds: (False, "bad key"),
+    )
+
+    with runner.isolated_filesystem():
+        config_path = Path("embx.connect.config.json")
+        env = {"EMBX_CONFIG_PATH": str(config_path)}
+
+        result = runner.invoke(
+            app,
+            [
+                "connect",
+                "--provider",
+                "openai",
+                "--api-key",
+                "sk-openai",
+                "--non-interactive",
+                "--test",
+            ],
+            env=env,
+        )
+        assert result.exit_code == 2
+        assert "Connectivity test failed" in result.output
+
+
+def test_models_json_output(monkeypatch) -> None:
+    async def fake_list_embedding_models(provider_name: str, config: dict, timeout_seconds: int):
+        _ = (provider_name, config, timeout_seconds)
+        return [{"id": "openai/text-embedding-3-small", "name": "Text Embedding 3 Small"}]
+
+    monkeypatch.setattr(
+        "embx.providers.discovery.list_embedding_models",
+        fake_list_embedding_models,
+    )
+
+    result = runner.invoke(app, ["models", "--provider", "openrouter", "--format", "json"])
+    assert result.exit_code == 0
+    assert "openai/text-embedding-3-small" in result.stdout
+
+
 def test_compare_json_success(monkeypatch) -> None:
     async def fake_embed_texts(
         self,

@@ -10,9 +10,11 @@ def register_all_commands(app: typer.Typer, config_app: typer.Typer) -> None:
     from embx.commands.config import register_config_commands
     from embx.commands.doctor import register_doctor_command
     from embx.commands.embed import register_embed_command
+    from embx.commands.models import register_models_command
     from embx.commands.providers import register_providers_command
 
     register_providers_command(app)
+    register_models_command(app)
     register_connect_command(app)
     register_doctor_command(app)
     register_embed_command(app)

@@ -23,6 +23,16 @@ embx providers
 # Interactive setup flow
 embx connect
 
+# Configure multiple providers in one run and test connectivity
+embx connect --all --test
+
+# Test one provider in non-interactive mode
+embx connect --provider openrouter --api-key "$EMBX_OPENROUTER_API_KEY" --non-interactive --test
+
+# List available embedding models
+embx models --provider openrouter
+embx models --provider openrouter --format json
+
 # Check provider configuration and readiness
 embx doctor
 embx doctor --only-configured --check-network
