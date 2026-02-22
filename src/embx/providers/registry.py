@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from embx.exceptions import ValidationError
 from embx.providers.base import EmbeddingProvider
+from embx.providers.huggingface_provider import HuggingFaceProvider
 from embx.providers.ollama_provider import OllamaProvider
 from embx.providers.openai_provider import OpenAIProvider
 from embx.providers.openrouter_provider import OpenRouterProvider
@@ -11,6 +12,7 @@ from embx.providers.voyage_provider import VoyageProvider
 _PROVIDER_TYPES: dict[str, type[EmbeddingProvider]] = {
     "openai": OpenAIProvider,
     "openrouter": OpenRouterProvider,
+    "huggingface": HuggingFaceProvider,
     "voyage": VoyageProvider,
     "ollama": OllamaProvider,
 }

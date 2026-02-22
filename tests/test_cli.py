@@ -21,6 +21,7 @@ def test_providers_json() -> None:
     assert result.exit_code == 0
     assert "openai" in result.stdout
     assert "openrouter" in result.stdout
+    assert "huggingface" in result.stdout
     assert "ollama" in result.stdout
 
 
@@ -102,7 +103,7 @@ def test_connect_all_wizard_multiple_providers() -> None:
         result = runner.invoke(
             app,
             ["connect", "--all"],
-            input="y\nsk-openai\nn\ny\nsk-voyage\nn\n",
+            input="y\nsk-openai\nn\nn\ny\nsk-voyage\nn\n",
             env=env,
         )
         assert result.exit_code == 0
@@ -167,8 +168,13 @@ def test_connect_test_flag_failure(monkeypatch) -> None:
 
 
 def test_models_json_output(monkeypatch) -> None:
-    async def fake_list_embedding_models(provider_name: str, config: dict, timeout_seconds: int):
-        _ = (provider_name, config, timeout_seconds)
+    async def fake_list_embedding_models(
+        provider_name: str,
+        config: dict,
+        timeout_seconds: int,
+        source: str = "remote",
+    ):
+        _ = (provider_name, config, timeout_seconds, source)
         return [{"id": "openai/text-embedding-3-small", "name": "Text Embedding 3 Small"}]
 
     monkeypatch.setattr(
@@ -179,6 +185,73 @@ def test_models_json_output(monkeypatch) -> None:
     result = runner.invoke(app, ["models", "--provider", "openrouter", "--format", "json"])
     assert result.exit_code == 0
     assert "openai/text-embedding-3-small" in result.stdout
+
+
+def test_models_interactive_huggingface_local(monkeypatch) -> None:
+    async def fake_list_embedding_models(
+        provider_name: str,
+        config: dict,
+        timeout_seconds: int,
+        source: str = "remote",
+    ):
+        _ = (config, timeout_seconds)
+        assert provider_name == "huggingface"
+        assert source == "local"
+        return [{"id": "sentence-transformers/all-MiniLM-L6-v2", "name": "all-MiniLM"}]
+
+    monkeypatch.setattr(
+        "embx.providers.discovery.list_embedding_models", fake_list_embedding_models
+    )
+
+    result = runner.invoke(
+        app,
+        ["models", "--interactive", "--format", "json"],
+        input="1\n2\nmini\n",
+    )
+    assert result.exit_code == 0
+    assert "sentence-transformers/all-MiniLM-L6-v2" in result.stdout
+
+
+def test_config_set_non_interactive() -> None:
+    with runner.isolated_filesystem():
+        config_path = Path("embx.config.set.json")
+        env = {"EMBX_CONFIG_PATH": str(config_path)}
+
+        result = runner.invoke(
+            app,
+            [
+                "config",
+                "set",
+                "--key",
+                "default_provider",
+                "--value",
+                "huggingface",
+                "--non-interactive",
+            ],
+            env=env,
+        )
+        assert result.exit_code == 0
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        assert data["default_provider"] == "huggingface"
+
+
+def test_config_set_interactive() -> None:
+    with runner.isolated_filesystem():
+        config_path = Path("embx.config.set.json")
+        env = {"EMBX_CONFIG_PATH": str(config_path)}
+
+        init_result = runner.invoke(app, ["config", "init", "--force"], env=env)
+        assert init_result.exit_code == 0
+
+        result = runner.invoke(
+            app,
+            ["config", "set", "--key", "default_provider"],
+            input="openrouter\n",
+            env=env,
+        )
+        assert result.exit_code == 0
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        assert data["default_provider"] == "openrouter"
 
 
 def test_compare_json_success(monkeypatch) -> None:
@@ -697,7 +770,7 @@ def test_doctor_json_lists_providers() -> None:
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     providers = {item["provider"] for item in payload}
-    assert {"openai", "voyage", "ollama"}.issubset(providers)
+    assert {"openai", "openrouter", "huggingface", "voyage", "ollama"}.issubset(providers)
 
 
 def test_doctor_only_configured_filters_results() -> None:

@@ -6,3 +6,10 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+
+
+.agent/
+.agents/
+.claude/
+.cursor/
+skills-lock.json

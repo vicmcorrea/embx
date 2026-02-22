@@ -29,9 +29,23 @@ embx connect --all --test
 # Test one provider in non-interactive mode
 embx connect --provider openrouter --api-key "$EMBX_OPENROUTER_API_KEY" --non-interactive --test
 
+# Configure HuggingFace provider
+embx connect --provider huggingface --api-key "$EMBX_HUGGINGFACE_API_KEY" --non-interactive
+
 # List available embedding models
 embx models --provider openrouter
 embx models --provider openrouter --format json
+
+# HuggingFace model discovery (remote/local/all)
+embx models --provider huggingface --source remote --search mini --limit 10
+embx models --provider huggingface --source local
+
+# Interactive model browsing
+embx models --interactive
+
+# Interactive config editing
+embx config set
+embx config set --key default_provider --value huggingface --non-interactive
 
 # Check provider configuration and readiness
 embx doctor
@@ -79,6 +93,9 @@ embx compare "semantic retrieval" --format md
 
 # Retries with backoff for transient provider failures
 embx embed "semantic retrieval" --provider openrouter --retries 2 --retry-backoff 0.2
+
+# HuggingFace embeddings inference
+embx embed "semantic retrieval" --provider huggingface --model sentence-transformers/all-MiniLM-L6-v2
 ```
 
 ## Config precedence

@@ -9,10 +9,11 @@ import typer
 from embx.commands.shared import fail
 
 
-PROVIDER_ORDER = ["openai", "openrouter", "voyage", "ollama"]
+PROVIDER_ORDER = ["openai", "openrouter", "huggingface", "voyage", "ollama"]
 PROVIDER_KEY_MAP = {
     "openai": "openai_api_key",
     "openrouter": "openrouter_api_key",
+    "huggingface": "huggingface_api_key",
     "voyage": "voyage_api_key",
 }
 
@@ -39,6 +40,7 @@ def _collect_provider_updates(
     cfg: dict[str, Any],
     api_key: str | None,
     base_url: str | None,
+    cache_dir: str | None,
     referer: str | None,
     title: str | None,
     non_interactive: bool,
@@ -74,6 +76,22 @@ def _collect_provider_updates(
             updates["openrouter_referer"] = referer
         if title is not None:
             updates["openrouter_title"] = title
+
+    if provider == "huggingface":
+        if base_url is None and not non_interactive:
+            default_base = str(
+                cfg.get("huggingface_base_url", "https://router.huggingface.co/hf-inference/models")
+            )
+            base_url = typer.prompt("HuggingFace base URL", default=default_base).strip()
+        if base_url:
+            updates["huggingface_base_url"] = base_url
+        if cache_dir is None and not non_interactive:
+            default_cache = str(cfg.get("huggingface_cache_dir", "")).strip()
+            cache_dir = typer.prompt(
+                "HuggingFace cache dir (optional)", default=default_cache
+            ).strip()
+        if cache_dir is not None:
+            updates["huggingface_cache_dir"] = cache_dir
 
     if provider == "ollama":
         if base_url is None and not non_interactive:
@@ -116,7 +134,12 @@ def register_connect_command(app: typer.Typer) -> None:
         base_url: str | None = typer.Option(
             None,
             "--base-url",
-            help="Base URL for Ollama/OpenRouter configuration.",
+            help="Base URL for Ollama/OpenRouter/HuggingFace configuration.",
+        ),
+        cache_dir: str | None = typer.Option(
+            None,
+            "--cache-dir",
+            help="Cache directory for HuggingFace local model discovery.",
         ),
         referer: str | None = typer.Option(
             None,
@@ -177,6 +200,7 @@ def register_connect_command(app: typer.Typer) -> None:
                     cfg=cfg,
                     api_key=None,
                     base_url=None,
+                    cache_dir=None,
                     referer=None,
                     title=None,
                     non_interactive=False,
@@ -202,6 +226,7 @@ def register_connect_command(app: typer.Typer) -> None:
                 cfg=cfg,
                 api_key=api_key,
                 base_url=base_url,
+                cache_dir=cache_dir,
                 referer=referer,
                 title=title,
                 non_interactive=non_interactive,
