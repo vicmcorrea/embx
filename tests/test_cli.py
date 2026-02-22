@@ -130,7 +130,7 @@ def test_compare_rank_by_cost_orders_results(monkeypatch) -> None:
 def test_compare_invalid_rank_by_fails() -> None:
     result = runner.invoke(app, ["compare", "hello", "--rank-by", "speed"])
     assert result.exit_code == 2
-    assert "--rank-by must be one of: none, latency, cost" in result.output
+    assert "--rank-by must be one of: none, latency, cost, quality" in result.output
 
 
 def test_compare_continue_on_error_keeps_success(monkeypatch) -> None:
@@ -253,3 +253,51 @@ def test_batch_csv_output(monkeypatch) -> None:
     assert "text,vector,provider,model" in result.stdout
     assert "first" in result.stdout
     assert "second" in result.stdout
+
+
+def test_compare_rank_by_quality_orders_results(monkeypatch) -> None:
+    async def fake_embed_texts(
+        self,
+        texts,
+        provider_name,
+        model=None,
+        dimensions=None,
+        use_cache=True,
+    ):
+        _ = (texts, model, dimensions, use_cache)
+        vectors = {
+            "openai": [1.0, 0.0, 0.0],
+            "voyage": [0.9, 0.1, 0.0],
+            "ollama": [-1.0, 0.0, 0.0],
+        }
+        return [
+            EmbeddingResult(
+                text="x",
+                vector=vectors[provider_name],
+                provider=provider_name,
+                model="mock-model",
+                cached=False,
+            )
+        ]
+
+    monkeypatch.setattr("embx.cli.EmbeddingEngine.embed_texts", fake_embed_texts)
+
+    result = runner.invoke(
+        app,
+        [
+            "compare",
+            "hello",
+            "--providers",
+            "openai,voyage,ollama",
+            "--rank-by",
+            "quality",
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0
+
+    payload = json.loads(result.stdout)
+    assert payload[0]["provider"] in {"openai", "voyage"}
+    assert payload[-1]["provider"] == "ollama"
+    assert payload[0]["quality_score"] is not None

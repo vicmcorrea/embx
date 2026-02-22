@@ -130,6 +130,60 @@ def _parse_provider_list(raw: str | None) -> list[str]:
     return deduped
 
 
+def _aligned_cosine_similarity(a: list[float], b: list[float]) -> float:
+    size = min(len(a), len(b))
+    if size == 0:
+        return 0.0
+
+    dot = 0.0
+    norm_a = 0.0
+    norm_b = 0.0
+    for index in range(size):
+        left = a[index]
+        right = b[index]
+        dot += left * right
+        norm_a += left * left
+        norm_b += right * right
+
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return dot / ((norm_a**0.5) * (norm_b**0.5))
+
+
+def _assign_quality_scores(rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        return
+    if len(rows) == 1:
+        rows[0]["quality_score"] = 1.0
+        return
+
+    for row in rows:
+        vector = row.get("_vector")
+        if not isinstance(vector, list):
+            row["quality_score"] = 0.0
+            continue
+
+        scores: list[float] = []
+        for other in rows:
+            if other is row:
+                continue
+            other_vector = other.get("_vector")
+            if not isinstance(other_vector, list):
+                continue
+            scores.append(_aligned_cosine_similarity(vector, other_vector))
+
+        row["quality_score"] = 0.0 if not scores else sum(scores) / len(scores)
+
+
+def _strip_private_fields(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    cleaned: list[dict[str, Any]] = []
+    for row in rows:
+        public_row = dict(row)
+        public_row.pop("_vector", None)
+        cleaned.append(public_row)
+    return cleaned
+
+
 async def _compare_provider(
     *,
     engine: EmbeddingEngine,
@@ -160,7 +214,9 @@ async def _compare_provider(
             "cost_usd": result.cost_usd,
             "input_tokens": result.input_tokens,
             "vector_preview": _safe_vector_preview(result.vector, size=6),
+            "quality_score": None,
             "error": None,
+            "_vector": result.vector,
         }
     except (ValidationError, ConfigurationError, ProviderError, Exception) as exc:
         elapsed_ms = (time.perf_counter() - started) * 1000
@@ -174,6 +230,7 @@ async def _compare_provider(
             "cost_usd": None,
             "input_tokens": None,
             "vector_preview": None,
+            "quality_score": None,
             "error": str(exc),
         }
 
@@ -369,7 +426,7 @@ def compare(
     rank_by: str = typer.Option(
         "none",
         "--rank-by",
-        help="Rank successful providers by none, latency, or cost.",
+        help="Rank successful providers by none, latency, cost, or quality.",
     ),
     continue_on_error: bool = typer.Option(
         True,
@@ -379,8 +436,8 @@ def compare(
 ) -> None:
     if output_format not in {"pretty", "json", "csv"}:
         _fail("--format must be one of: pretty, json, csv", code=2)
-    if rank_by not in {"none", "latency", "cost"}:
-        _fail("--rank-by must be one of: none, latency, cost", code=2)
+    if rank_by not in {"none", "latency", "cost", "quality"}:
+        _fail("--rank-by must be one of: none, latency, cost, quality", code=2)
 
     input_text = _collect_single_text(text)
     provider_names = _parse_provider_list(providers)
@@ -430,6 +487,8 @@ def compare(
 
     successful_rows = [row for row in rows if row["status"] == "ok"]
     error_rows = [row for row in rows if row["status"] != "ok"]
+    _assign_quality_scores(successful_rows)
+
     if rank_by == "latency":
         successful_rows = sorted(successful_rows, key=lambda row: float(row["latency_ms"]))
     elif rank_by == "cost":
@@ -437,9 +496,15 @@ def compare(
             successful_rows,
             key=lambda row: float(row["cost_usd"]) if row["cost_usd"] is not None else float("inf"),
         )
+    elif rank_by == "quality":
+        successful_rows = sorted(
+            successful_rows,
+            key=lambda row: float(row["quality_score"]),
+            reverse=True,
+        )
 
     if rank_by == "none":
-        ranked_rows = successful_rows + error_rows
+        ranked_rows = list(rows)
         for row in ranked_rows:
             row["rank"] = None
     else:
@@ -449,10 +514,12 @@ def compare(
         for row in error_rows:
             row["rank"] = None
 
+    public_rows = _strip_private_fields(ranked_rows)
+
     if output_format == "csv":
-        _emit_csv(ranked_rows, output)
+        _emit_csv(public_rows, output)
     elif output_format == "json" or output is not None:
-        _emit_json(ranked_rows, output)
+        _emit_json(public_rows, output)
     else:
         table = Table(title="Embedding comparison")
         table.add_column("Rank")
@@ -463,11 +530,13 @@ def compare(
         table.add_column("Cached")
         table.add_column("Latency ms")
         table.add_column("Cost USD")
+        table.add_column("Quality")
         table.add_column("Message")
 
-        for row in ranked_rows:
+        for row in public_rows:
             message = row["error"] or row["vector_preview"] or ""
             cost = "" if row["cost_usd"] is None else f"{row['cost_usd']:.8f}"
+            quality = "" if row["quality_score"] is None else f"{float(row['quality_score']):.6f}"
             table.add_row(
                 "" if row["rank"] is None else str(row["rank"]),
                 str(row["provider"]),
@@ -477,6 +546,7 @@ def compare(
                 str(row["cached"]),
                 f"{row['latency_ms']:.3f}",
                 cost,
+                quality,
                 str(message),
             )
         Console(no_color=not sys.stdout.isatty()).print(table)
@@ -488,6 +558,8 @@ def compare(
                     detail = "cost unavailable"
                 else:
                     detail = f"${best['cost_usd']:.8f}"
+            elif rank_by == "quality":
+                detail = f"score {float(best['quality_score']):.6f}"
             else:
                 detail = f"{best['latency_ms']:.3f} ms"
             typer.secho(
