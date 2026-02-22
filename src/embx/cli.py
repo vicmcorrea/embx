@@ -391,6 +391,17 @@ def compare(
         "--rank-by",
         help="Rank successful providers by none, latency, cost, or quality.",
     ),
+    top: int | None = typer.Option(
+        None,
+        "--top",
+        min=1,
+        help="Limit number of successful providers shown. Requires rank mode.",
+    ),
+    include_errors: bool = typer.Option(
+        True,
+        "--include-errors/--hide-errors",
+        help="Include failed provider rows in output.",
+    ),
     continue_on_error: bool = typer.Option(
         True,
         "--continue-on-error/--fail-fast",
@@ -403,6 +414,8 @@ def compare(
     if rank_by not in ranking_options:
         options_text = ", ".join(ranking_options)
         _fail(f"--rank-by must be one of: {options_text}", code=2)
+    if top is not None and rank_by == "none":
+        _fail("--top requires --rank-by latency, cost, or quality", code=2)
 
     input_text = _collect_single_text(text)
     provider_names = _parse_provider_list(providers)
@@ -463,9 +476,22 @@ def compare(
     success_count = sum(1 for row in rows if row["status"] == "ok")
 
     ranking_result = apply_ranking(rows, rank_by)
-    ranked_rows = ranking_result.ranked_rows
-    successful_rows = ranking_result.successful_rows
-    public_rows = strip_private_fields(ranked_rows)
+    successful_rows = list(ranking_result.successful_rows)
+    error_rows = list(ranking_result.error_rows)
+
+    if top is not None:
+        successful_rows = successful_rows[:top]
+
+    output_rows = list(successful_rows)
+    if include_errors:
+        output_rows.extend(error_rows)
+
+    if top is None and rank_by == "none":
+        output_rows = list(ranking_result.ranked_rows)
+        if not include_errors:
+            output_rows = [row for row in output_rows if row["status"] == "ok"]
+
+    public_rows = strip_private_fields(output_rows)
 
     if output_format == "csv":
         _emit_csv(public_rows, output)

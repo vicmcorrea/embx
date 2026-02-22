@@ -43,7 +43,15 @@ CLI command
 - `compare --rank-by quality` ranks by average cosine agreement with other successful providers.
 - `compare` runs provider calls concurrently by default (`--continue-on-error`) for faster side-by-side checks.
 - `compare --only-configured` filters out providers that are missing required credentials.
+- `compare --top N` keeps only the top `N` successful ranked providers.
+- `compare --hide-errors` omits failed provider rows from output.
 - Human mode (`pretty`) prioritizes readability and avoids noisy internals.
+
+## Ranking module design
+
+- `src/embx/ranking.py` uses a registry + factory pattern for rank strategies.
+- Strategy functions register via `@register_ranking("name")`.
+- `apply_ranking` centralizes rank assignment and quality-score computation.
 
 ## Extension points
 

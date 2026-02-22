@@ -392,3 +392,101 @@ def test_compare_only_configured_with_none_fails() -> None:
     )
     assert result.exit_code == 2
     assert "No configured providers available" in result.output
+
+
+def test_compare_top_requires_rank_mode() -> None:
+    result = runner.invoke(app, ["compare", "hello", "--top", "1"])
+    assert result.exit_code == 2
+    assert "--top requires --rank-by latency, cost, or quality" in result.output
+
+
+def test_compare_top_limits_successful_results(monkeypatch) -> None:
+    async def fake_embed_texts(
+        self,
+        texts,
+        provider_name,
+        model=None,
+        dimensions=None,
+        use_cache=True,
+    ):
+        _ = (texts, model, dimensions, use_cache)
+        latency_vectors = {
+            "openai": [0.1, 0.2],
+            "voyage": [0.2, 0.3],
+            "ollama": [0.3, 0.4],
+        }
+        return [
+            EmbeddingResult(
+                text="x",
+                vector=latency_vectors[provider_name],
+                provider=provider_name,
+                model="mock-model",
+                cached=False,
+            )
+        ]
+
+    monkeypatch.setattr("embx.cli.EmbeddingEngine.embed_texts", fake_embed_texts)
+
+    result = runner.invoke(
+        app,
+        [
+            "compare",
+            "hello",
+            "--providers",
+            "openai,voyage,ollama",
+            "--rank-by",
+            "latency",
+            "--top",
+            "2",
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert len(payload) == 2
+    assert payload[0]["rank"] == 1
+    assert payload[1]["rank"] == 2
+
+
+def test_compare_hide_errors_excludes_failed_rows(monkeypatch) -> None:
+    async def fake_embed_texts(
+        self,
+        texts,
+        provider_name,
+        model=None,
+        dimensions=None,
+        use_cache=True,
+    ):
+        _ = (texts, model, dimensions, use_cache)
+        if provider_name == "openai":
+            raise RuntimeError("forced")
+        return [
+            EmbeddingResult(
+                text="x",
+                vector=[0.1, 0.2],
+                provider=provider_name,
+                model="mock-model",
+                cached=False,
+            )
+        ]
+
+    monkeypatch.setattr("embx.cli.EmbeddingEngine.embed_texts", fake_embed_texts)
+
+    result = runner.invoke(
+        app,
+        [
+            "compare",
+            "hello",
+            "--providers",
+            "openai,voyage",
+            "--hide-errors",
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert len(payload) == 1
+    assert payload[0]["provider"] == "voyage"
+    assert payload[0]["status"] == "ok"

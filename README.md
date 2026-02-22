@@ -53,6 +53,9 @@ embx batch inputs.txt --format csv --output embeddings.csv
 
 # Skip providers without configured credentials
 embx compare "semantic retrieval" --providers openai,voyage,ollama --only-configured
+
+# Show top 2 ranked providers and hide failed rows
+embx compare "semantic retrieval" --rank-by quality --top 2 --hide-errors
 ```
 
 ## Config precedence
