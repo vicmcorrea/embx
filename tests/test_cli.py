@@ -188,3 +188,68 @@ def test_compare_fail_fast_stops_on_error(monkeypatch) -> None:
     )
     assert result.exit_code == 2
     assert "failed" in result.output
+
+
+def test_compare_csv_output(monkeypatch) -> None:
+    async def fake_embed_texts(
+        self,
+        texts,
+        provider_name,
+        model=None,
+        dimensions=None,
+        use_cache=True,
+    ):
+        _ = (texts, model, dimensions, use_cache)
+        return [
+            EmbeddingResult(
+                text="x",
+                vector=[0.0, 1.0],
+                provider=provider_name,
+                model="mock",
+                cached=False,
+            )
+        ]
+
+    monkeypatch.setattr("embx.cli.EmbeddingEngine.embed_texts", fake_embed_texts)
+
+    result = runner.invoke(
+        app,
+        ["compare", "hello", "--providers", "openai", "--format", "csv"],
+    )
+    assert result.exit_code == 0
+    assert "provider,status" in result.stdout
+    assert "openai,ok" in result.stdout
+
+
+def test_batch_csv_output(monkeypatch) -> None:
+    async def fake_embed_texts(
+        self,
+        texts,
+        provider_name,
+        model=None,
+        dimensions=None,
+        use_cache=True,
+    ):
+        _ = (provider_name, model, dimensions, use_cache)
+        return [
+            EmbeddingResult(
+                text=value,
+                vector=[0.1, 0.2],
+                provider="mock",
+                model="mock-model",
+                cached=False,
+            )
+            for value in texts
+        ]
+
+    monkeypatch.setattr("embx.cli.EmbeddingEngine.embed_texts", fake_embed_texts)
+
+    with runner.isolated_filesystem():
+        input_path = Path("inputs.txt")
+        input_path.write_text("first\nsecond\n", encoding="utf-8")
+        result = runner.invoke(app, ["batch", str(input_path), "--format", "csv"])
+
+    assert result.exit_code == 0
+    assert "text,vector,provider,model" in result.stdout
+    assert "first" in result.stdout
+    assert "second" in result.stdout

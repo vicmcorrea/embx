@@ -40,6 +40,10 @@ embx compare "semantic retrieval" --format json --output compare.json
 
 # Rank providers by latency or cost
 embx compare "semantic retrieval" --providers openai,voyage --rank-by latency
+
+# Emit CSV for spreadsheets or BI tools
+embx compare "semantic retrieval" --providers openai,voyage --format csv
+embx batch inputs.txt --format csv --output embeddings.csv
 ```
 
 ## Config precedence

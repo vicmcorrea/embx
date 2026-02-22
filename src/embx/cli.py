@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import json
 import sys
 import time
@@ -79,6 +81,32 @@ def _emit_json(data: Any, output: Path | None = None) -> None:
         typer.secho(f"Wrote output to {output}", fg=typer.colors.GREEN, err=True)
         return
     typer.echo(serialized)
+
+
+def _emit_csv(rows: list[dict[str, Any]], output: Path | None = None) -> None:
+    fieldnames: list[str] = []
+    for row in rows:
+        for key in row.keys():
+            if key not in fieldnames:
+                fieldnames.append(key)
+
+    if not fieldnames:
+        fieldnames = ["result"]
+        rows = [{"result": ""}]
+
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+    payload = buffer.getvalue()
+
+    if output:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(payload, encoding="utf-8")
+        typer.secho(f"Wrote output to {output}", fg=typer.colors.GREEN, err=True)
+        return
+    typer.echo(payload, nl=False)
 
 
 def _all_provider_names() -> list[str]:
@@ -264,12 +292,12 @@ def batch(
     provider: str | None = typer.Option(None, "--provider", "-p", help="Embedding provider"),
     model: str | None = typer.Option(None, "--model", "-m", help="Model name"),
     dimensions: int | None = typer.Option(None, "--dimensions", min=1, help="Output dimensions"),
-    output_format: str = typer.Option("jsonl", "--format", help="jsonl or json"),
+    output_format: str = typer.Option("jsonl", "--format", help="jsonl, json, or csv"),
     output: Path | None = typer.Option(None, "--output", "-o", help="Write output to file"),
     no_cache: bool = typer.Option(False, "--no-cache", help="Disable cache for this call"),
 ) -> None:
-    if output_format not in {"json", "jsonl"}:
-        _fail("--format must be one of: jsonl, json", code=2)
+    if output_format not in {"json", "jsonl", "csv"}:
+        _fail("--format must be one of: jsonl, json, csv", code=2)
 
     try:
         lines = input_file.read_text(encoding="utf-8").splitlines()
@@ -303,6 +331,9 @@ def batch(
     rows = [item.to_dict() for item in results]
     if output_format == "json":
         payload = json.dumps(rows, indent=2)
+    elif output_format == "csv":
+        _emit_csv(rows, output)
+        return
     else:
         payload = "\n".join(json.dumps(row) for row in rows)
 
@@ -332,7 +363,7 @@ def compare(
         help="Model name to force for all providers.",
     ),
     dimensions: int | None = typer.Option(None, "--dimensions", min=1, help="Output dimensions"),
-    output_format: str = typer.Option("pretty", "--format", help="pretty or json"),
+    output_format: str = typer.Option("pretty", "--format", help="pretty, json, or csv"),
     output: Path | None = typer.Option(None, "--output", "-o", help="Write JSON result to file"),
     no_cache: bool = typer.Option(False, "--no-cache", help="Disable cache for this call"),
     rank_by: str = typer.Option(
@@ -346,8 +377,8 @@ def compare(
         help="Continue comparing other providers if one fails.",
     ),
 ) -> None:
-    if output_format not in {"pretty", "json"}:
-        _fail("--format must be one of: pretty, json", code=2)
+    if output_format not in {"pretty", "json", "csv"}:
+        _fail("--format must be one of: pretty, json, csv", code=2)
     if rank_by not in {"none", "latency", "cost"}:
         _fail("--rank-by must be one of: none, latency, cost", code=2)
 
@@ -418,7 +449,9 @@ def compare(
         for row in error_rows:
             row["rank"] = None
 
-    if output_format == "json" or output is not None:
+    if output_format == "csv":
+        _emit_csv(ranked_rows, output)
+    elif output_format == "json" or output is not None:
         _emit_json(ranked_rows, output)
     else:
         table = Table(title="Embedding comparison")
