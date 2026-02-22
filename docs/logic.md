@@ -38,6 +38,7 @@ CLI command
 - `batch --format json` returns one JSON array.
 - `batch --format jsonl` returns one object per line.
 - `compare --format json` returns one row per provider with status, latency, and error fields.
+- `compare --rank-by latency|cost` sorts successful providers and adds rank metadata.
 - Human mode (`pretty`) prioritizes readability and avoids noisy internals.
 
 ## Extension points

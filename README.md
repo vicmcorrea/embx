@@ -37,6 +37,9 @@ embx compare "semantic retrieval" --providers openai,voyage,ollama
 
 # Compare in machine-readable mode
 embx compare "semantic retrieval" --format json --output compare.json
+
+# Rank providers by latency or cost
+embx compare "semantic retrieval" --providers openai,voyage --rank-by latency
 ```
 
 ## Config precedence

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -78,3 +79,55 @@ def test_compare_empty_provider_list_fails() -> None:
     result = runner.invoke(app, ["compare", "hello", "--providers", " , , "])
     assert result.exit_code == 2
     assert "--providers must contain at least one provider" in result.output
+
+
+def test_compare_rank_by_cost_orders_results(monkeypatch) -> None:
+    async def fake_embed_texts(
+        self,
+        texts,
+        provider_name,
+        model=None,
+        dimensions=None,
+        use_cache=True,
+    ):
+        _ = (texts, model, dimensions, use_cache)
+        cost_map = {"openai": 0.12, "voyage": 0.03}
+        return [
+            EmbeddingResult(
+                text="x",
+                vector=[0.0, 1.0],
+                provider=provider_name,
+                model="mock",
+                cached=False,
+                cost_usd=cost_map.get(provider_name),
+            )
+        ]
+
+    monkeypatch.setattr("embx.cli.EmbeddingEngine.embed_texts", fake_embed_texts)
+
+    result = runner.invoke(
+        app,
+        [
+            "compare",
+            "hello",
+            "--providers",
+            "openai,voyage",
+            "--rank-by",
+            "cost",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload[0]["provider"] == "voyage"
+    assert payload[0]["rank"] == 1
+    assert payload[1]["provider"] == "openai"
+    assert payload[1]["rank"] == 2
+
+
+def test_compare_invalid_rank_by_fails() -> None:
+    result = runner.invoke(app, ["compare", "hello", "--rank-by", "speed"])
+    assert result.exit_code == 2
+    assert "--rank-by must be one of: none, latency, cost" in result.output

@@ -287,6 +287,11 @@ def compare(
     output_format: str = typer.Option("pretty", "--format", help="pretty or json"),
     output: Path | None = typer.Option(None, "--output", "-o", help="Write JSON result to file"),
     no_cache: bool = typer.Option(False, "--no-cache", help="Disable cache for this call"),
+    rank_by: str = typer.Option(
+        "none",
+        "--rank-by",
+        help="Rank successful providers by none, latency, or cost.",
+    ),
     continue_on_error: bool = typer.Option(
         True,
         "--continue-on-error/--fail-fast",
@@ -295,6 +300,8 @@ def compare(
 ) -> None:
     if output_format not in {"pretty", "json"}:
         _fail("--format must be one of: pretty, json", code=2)
+    if rank_by not in {"none", "latency", "cost"}:
+        _fail("--rank-by must be one of: none, latency, cost", code=2)
 
     input_text = _collect_single_text(text)
     provider_names = _parse_provider_list(providers)
@@ -356,10 +363,32 @@ def compare(
             if not continue_on_error:
                 _fail(f"Provider '{provider_name}' failed: {exc}", code=2)
 
+    successful_rows = [row for row in rows if row["status"] == "ok"]
+    error_rows = [row for row in rows if row["status"] != "ok"]
+    if rank_by == "latency":
+        successful_rows = sorted(successful_rows, key=lambda row: float(row["latency_ms"]))
+    elif rank_by == "cost":
+        successful_rows = sorted(
+            successful_rows,
+            key=lambda row: float(row["cost_usd"]) if row["cost_usd"] is not None else float("inf"),
+        )
+
+    if rank_by == "none":
+        ranked_rows = successful_rows + error_rows
+        for row in ranked_rows:
+            row["rank"] = None
+    else:
+        ranked_rows = successful_rows + error_rows
+        for index, row in enumerate(successful_rows, start=1):
+            row["rank"] = index
+        for row in error_rows:
+            row["rank"] = None
+
     if output_format == "json" or output is not None:
-        _emit_json(rows, output)
+        _emit_json(ranked_rows, output)
     else:
         table = Table(title="Embedding comparison")
+        table.add_column("Rank")
         table.add_column("Provider")
         table.add_column("Status")
         table.add_column("Model")
@@ -369,10 +398,11 @@ def compare(
         table.add_column("Cost USD")
         table.add_column("Message")
 
-        for row in rows:
+        for row in ranked_rows:
             message = row["error"] or row["vector_preview"] or ""
             cost = "" if row["cost_usd"] is None else f"{row['cost_usd']:.8f}"
             table.add_row(
+                "" if row["rank"] is None else str(row["rank"]),
                 str(row["provider"]),
                 str(row["status"]),
                 str(row["model"] or ""),
@@ -383,6 +413,21 @@ def compare(
                 str(message),
             )
         Console(no_color=not sys.stdout.isatty()).print(table)
+
+        if rank_by != "none" and successful_rows:
+            best = successful_rows[0]
+            if rank_by == "cost":
+                if best["cost_usd"] is None:
+                    detail = "cost unavailable"
+                else:
+                    detail = f"${best['cost_usd']:.8f}"
+            else:
+                detail = f"{best['latency_ms']:.3f} ms"
+            typer.secho(
+                f"Best by {rank_by}: {best['provider']} ({detail})",
+                fg=typer.colors.GREEN,
+                err=True,
+            )
 
     if success_count == 0:
         _fail("All compared providers failed. See output for details.", code=2)
