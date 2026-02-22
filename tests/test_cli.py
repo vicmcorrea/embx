@@ -265,6 +265,47 @@ def test_models_choose_non_interactive_fails() -> None:
     assert "--choose cannot be used with --non-interactive" in result.output
 
 
+def test_models_pick_save_default_updates_config(monkeypatch) -> None:
+    async def fake_list_embedding_models(
+        provider_name: str,
+        config: dict,
+        timeout_seconds: int,
+        source: str = "remote",
+    ):
+        _ = (provider_name, config, timeout_seconds, source)
+        return [
+            {"id": "model/a", "name": "A"},
+            {"id": "model/b", "name": "B"},
+        ]
+
+    monkeypatch.setattr(
+        "embx.providers.discovery.list_embedding_models", fake_list_embedding_models
+    )
+
+    with runner.isolated_filesystem():
+        config_path = Path("embx.models.config.json")
+        env = {"EMBX_CONFIG_PATH": str(config_path)}
+
+        result = runner.invoke(
+            app,
+            [
+                "models",
+                "--provider",
+                "openrouter",
+                "--pick",
+                "2",
+                "--save-default",
+            ],
+            env=env,
+        )
+        assert result.exit_code == 0
+        assert result.stdout.strip() == "model/b"
+
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        assert data["default_provider"] == "openrouter"
+        assert data["default_model"] == "model/b"
+
+
 def test_config_set_non_interactive() -> None:
     with runner.isolated_filesystem():
         config_path = Path("embx.config.set.json")
@@ -895,3 +936,64 @@ def test_doctor_check_auth_uses_discovery_probe(monkeypatch) -> None:
     assert row_map["openai"]["auth_status"] == "ok"
     assert row_map["openrouter"]["auth_status"] == "error"
     assert row_map["openrouter"]["auth_detail"] == "bad token"
+
+
+def test_doctor_fix_json_returns_exit_3_for_issues() -> None:
+    result = runner.invoke(app, ["doctor", "--json", "--fix"])
+    assert result.exit_code == 3
+    payload = json.loads(result.stdout)
+    assert any(bool(row.get("needs_fix")) for row in payload)
+
+
+def test_ping_json_success(monkeypatch) -> None:
+    async def fake_embed_texts(
+        self,
+        texts,
+        provider_name,
+        model=None,
+        dimensions=None,
+        use_cache=True,
+    ):
+        _ = (provider_name, model, dimensions, use_cache)
+        return [
+            EmbeddingResult(
+                text=texts[0],
+                vector=[0.1, 0.2, 0.3],
+                provider="openai",
+                model="text-embedding-3-small",
+                cached=False,
+                input_tokens=2,
+                cost_usd=0.000001,
+            )
+        ]
+
+    monkeypatch.setattr("embx.engine.EmbeddingEngine.embed_texts", fake_embed_texts)
+
+    result = runner.invoke(app, ["ping", "--provider", "openai", "--format", "json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["provider"] == "openai"
+    assert payload["status"] == "ok"
+    assert payload["dimensions"] == 3
+    assert "latency_ms" in payload
+
+
+def test_ping_failure_returns_exit_2(monkeypatch) -> None:
+    from embx.exceptions import ProviderError
+
+    async def fake_embed_texts(
+        self,
+        texts,
+        provider_name,
+        model=None,
+        dimensions=None,
+        use_cache=True,
+    ):
+        _ = (self, texts, provider_name, model, dimensions, use_cache)
+        raise ProviderError("unauthorized")
+
+    monkeypatch.setattr("embx.engine.EmbeddingEngine.embed_texts", fake_embed_texts)
+
+    result = runner.invoke(app, ["ping", "--provider", "openai"])
+    assert result.exit_code == 2
+    assert "Ping failed for provider 'openai': unauthorized" in result.output

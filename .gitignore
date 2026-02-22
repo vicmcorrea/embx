@@ -13,3 +13,4 @@ build/
 .claude/
 .cursor/
 skills-lock.json
+interal_docs/

@@ -137,6 +137,11 @@ def register_models_command(app: typer.Typer) -> None:
             min=1,
             help="Pick 1-based model index and output only its id.",
         ),
+        save_default: bool = typer.Option(
+            False,
+            "--save-default",
+            help="Save selected model as default_model/default_provider (requires --choose or --pick).",
+        ),
         interactive: bool = typer.Option(
             False,
             "--interactive",
@@ -161,6 +166,8 @@ def register_models_command(app: typer.Typer) -> None:
             fail("--choose and --pick cannot be used together.", code=2)
         if choose and non_interactive:
             fail("--choose cannot be used with --non-interactive. Use --pick instead.", code=2)
+        if save_default and not (choose or pick is not None):
+            fail("--save-default requires --choose or --pick.", code=2)
 
         try:
             cfg = resolve_config()
@@ -223,6 +230,12 @@ def register_models_command(app: typer.Typer) -> None:
                 selected = rows[pick - 1]
 
             selected_id = str(selected["id"])
+
+            if save_default:
+                from embx.config import upsert_config
+
+                upsert_config({"default_provider": provider_name, "default_model": selected_id})
+
             if output:
                 output.parent.mkdir(parents=True, exist_ok=True)
                 output.write_text(selected_id + "\n", encoding="utf-8")
