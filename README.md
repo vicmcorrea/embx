@@ -80,3 +80,7 @@ embx --show-completion
 - Provider integrations are intentionally minimal and extensible.
 - `compare` command is available for side-by-side provider checks.
 - Docs in `docs/` explain architecture and roadmap.
+
+## Contributing
+
+See `CONTRIBUTING.md` for setup, quality gates, and pull request expectations.
